@@ -1,0 +1,102 @@
+dataset:
+  name: rat_aging_muscle
+  title: Rat aging muscle GPA dataset
+  species: rat
+  bioproject: PRJNA793055
+  group_columns:
+  - age
+  - treatment
+  - condition
+  primary_group_column: condition
+  sample_naming:
+    template: rat_{age}_{treatment}_{replicate}
+    replicate_column: Biological_Replicate
+downloads:
+  method: fasterq_dump
+  fasterq_threads: 2
+  prefetch: false
+  validate_fastq: true
+mt_realign:
+  minimap2_index_extra: -k13 -w5
+  max_query_overlap_bp: 12
+  max_query_gap_bp: 30
+junctions:
+  min_anchor_length: 15
+references:
+  rat:
+    genome_url: https://ftp.ensembl.org/pub/release-104/fasta/rattus_norvegicus/dna/Rattus_norvegicus.Rnor_6.0.dna.toplevel.fa.gz
+    annotation_url: https://ftp.ensembl.org/pub/release-104/gtf/rattus_norvegicus/Rattus_norvegicus.Rnor_6.0.104.gtf.gz
+    mt_contig_names:
+    - MT
+    - chrM
+    - MTDNA
+    mt_length: 16313
+annotations:
+  feature_aliases:
+  - raw_name: AY172581.13
+    display_name: Mt-tf
+  - raw_name: AY172581.9
+    display_name: Mt-rnr1
+  - raw_name: AY172581.3
+    display_name: Mt-tv
+  - raw_name: AY172581.24
+    display_name: Mt-rnr2
+  - raw_name: AY172581.14
+    display_name: Mt-tl1
+  - raw_name: AY172581.4
+    display_name: Mt-ti
+  - raw_name: AY172581.21
+    display_name: Mt-tq
+  - raw_name: AY172581.15
+    display_name: Mt-tm
+  - raw_name: AY172581.6
+    display_name: Mt-tw
+  - raw_name: AY172581.22
+    display_name: Mt-ta
+  - raw_name: AY172581.18
+    display_name: Mt-tn
+  - raw_name: AY172581.10
+    display_name: Mt-tc
+  - raw_name: AY172581.7
+    display_name: Mt-ty
+  - raw_name: AY172581.19
+    display_name: Mt-ts1
+  - raw_name: AY172581.12
+    display_name: Mt-td
+  - raw_name: AY172581.1
+    display_name: Mt-tk
+  - raw_name: AY172581.5
+    display_name: Mt-tg
+  - raw_name: AY172581.16
+    display_name: Mt-tr
+  - raw_name: AY172581.23
+    display_name: Mt-th
+  - raw_name: AY172581.17
+    display_name: Mt-ts2
+  - raw_name: AY172581.11
+    display_name: Mt-tl2
+  - raw_name: AY172581.20
+    display_name: Mt-te
+  - raw_name: AY172581.8
+    display_name: Mt-tt
+  - raw_name: AY172581.2
+    display_name: Mt-tp
+  expected_adjacent_transcripts:
+  - species: rat
+    left_feature: Mt-Atp8
+    right_feature: Mt-Atp6
+    reason: same_transcript
+  - species: rat
+    left_feature: Mt-Nd4l
+    right_feature: Mt-Nd4
+    reason: same_transcript
+analysis:
+  mt_regions:
+  - name: direct_repeat_8102_window
+    start: 8077
+    end: 8127
+    reason: Dataset-specific direct-repeat window near position 8102
+  - name: direct_repeat_12936_window
+    start: 12911
+    end: 12961
+    reason: Dataset-specific direct-repeat window near position 12936

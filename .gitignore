@@ -1,0 +1,42 @@
+# Workflow outputs and large generated state
+results/
+resources/
+cache/
+metadata/generated/
+sensitivity_results/
+logs/
+.snakemake/
+BCLConvert_*/
+finalized_mitochondrial_repo/
+
+# SRA Toolkit scratch folders that fasterq-dump can leave behind
+fasterq.tmp*/
+
+# Local sequencing/alignment files; keep sample tables/configs, not large data
+*.fastq
+*.fq
+*.fastq.gz
+*.fq.gz
+*.bam
+*.bai
+*.sam
+
+# Local Codex/agent session state
+.agents/
+.codex/
+
+# Private deployment notes symlink
+deploy
+
+# Python/test caches
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo

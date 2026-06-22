@@ -1,0 +1,109 @@
+dataset:
+  name: human_common_deletion
+  title: Human common mtDNA deletion dataset
+  species: human
+  sample_table: metadata/human_common_deletion.samples.tsv
+  group_columns:
+  - deletion_status
+  - condition
+  primary_group_column: deletion_status
+downloads:
+  method: ena_fastq
+  validate_fastq: true
+references:
+  human:
+    genome_url: https://ftp.ensembl.org/pub/release-104/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz
+    annotation_url: https://ftp.ensembl.org/pub/release-104/gtf/homo_sapiens/Homo_sapiens.GRCh38.104.gtf.gz
+    mt_reference_name: Revised Cambridge Reference Sequence (rCRS)
+    mt_reference_accession: NC_012920.1
+    mt_contig_names:
+    - MT
+    - chrM
+    - MTDNA
+    mt_length: 16569
+mapping:
+  star_genome_sa_index_nbases: 14
+annotations:
+  expected_adjacent_transcripts:
+  - species: human
+    left_feature: MT-ATP8
+    right_feature: MT-ATP6
+    reason: same_transcript
+  - species: human
+    left_feature: MT-ND4L
+    right_feature: MT-ND4
+    reason: same_transcript
+analysis:
+  known_sequence_searches:
+  - id: mtDNA_6335_13999
+    name: Human mtDNA deletion 6335-13999
+    description: Search for reads containing a single breakpoint-spanning sequence
+      for this deletion.
+    search_strategy:
+      type: single_sequence
+      purpose: Detect reads that contain the deletion junction sequence.
+    search_sequences:
+    - id: junction_sequence
+      sequence: CTCCGTAGACCTAACCTGAC
+      reverse_complement: GTCAGGTTAGGTCTACGGAG
+      role: breakpoint_junction
+  - id: mtDNA_7816_14807
+    name: Human mtDNA deletion 7816-14807
+    description: Search for reads or read-derived text blocks matching a primary deletion-associated
+      sequence and additional supporting sequences.
+    search_strategy:
+      type: multi_sequence_required
+      purpose: Detect candidate reads only when all listed search sequences are present.
+    search_sequences:
+    - id: primary_sequence
+      sequence: TCATCGACCTCCCCACCC
+      reverse_complement: GGGTGGGGAGGTCGATGA
+      role: primary_search_sequence
+    - id: supporting_sequence_1
+      sequence: ATCCTAGT
+      reverse_complement: ACTAGGAT
+      role: supporting_search_sequence
+    - id: supporting_sequence_2
+      sequence: GAAACTTCGG
+      reverse_complement: CCGAAGTTTC
+      role: supporting_search_sequence
+  - id: mtDNA_8471_13449
+    name: Human mtDNA deletion 8471-13449 common deletion
+    description: Search for reads containing a single breakpoint-spanning sequence
+      for the common mtDNA deletion.
+    search_strategy:
+      type: single_sequence
+      purpose: Detect reads that contain the deletion junction sequence.
+    search_sequences:
+    - id: junction_sequence
+      sequence: CAAACTACCACCTACCTCCCTCACCATTGG
+      reverse_complement: CCAATGGTGAGGGAGGTAGGTGGTAGTTTG
+      role: breakpoint_junction
+  known_deletions:
+  - name: human_common_mtDNA_deletion
+    left_breakpoint: 8470
+    right_breakpoint: 13447
+    deleted_size: 4977
+    breakpoint_tolerance_bp: 100
+    size_tolerance_bp: 150
+  mt_regions:
+  - name: mitochondrial_control_region
+    start: 16024
+    end: 16569
+    reason: Configured noncoding control-region/D-loop interval on the standard human
+      mitochondrial coordinate system.
+  - name: mitochondrial_control_region
+    start: 1
+    end: 576
+    reason: Configured noncoding control-region/D-loop interval on the standard human
+      mitochondrial coordinate system.
+  - name: human_common_deletion_5prime_repeat_window
+    start: 8445
+    end: 8495
+    reason: Window around the 5-prime repeat/breakpoint region of the 4977 bp common
+      deletion.
+  - name: human_common_deletion_3prime_repeat_window
+    start: 13422
+    end: 13472
+    reason: Window around the 3-prime repeat/breakpoint region of the 4977 bp common
+      deletion.

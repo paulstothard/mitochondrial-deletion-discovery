@@ -1,0 +1,27 @@
+name: mitochondrial-deletions
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python >=3.10
+  - snakemake >=8
+  - star
+  - minimap2
+  - samtools
+  - sra-tools
+  - fastqc
+  - fastp
+  - pigz
+  - seqkit
+  - pysam
+  - biopython
+  - pandas
+  - numpy
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - jinja2
+  - pyyaml
+  - pytest

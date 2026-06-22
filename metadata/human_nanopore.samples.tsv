@@ -1,0 +1,2 @@
+sample	dataset	species	condition	layout	fastq_1	fastq_2
+SUP_ONT_rCS	human_nanopore	human	nanopore	single	SUP_ONT_rCS.fastq	
