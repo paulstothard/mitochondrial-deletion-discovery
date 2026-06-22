@@ -249,21 +249,6 @@ conda env create -f envs/mitochondrial-deletions.yaml
 conda activate mitochondrial-deletions
 ```
 
-If solving is slow or fails, use `mamba` with the same environment file:
-
-```bash
-mamba env create -f envs/mitochondrial-deletions.yaml
-conda activate mitochondrial-deletions
-```
-
-Linux is the most reliable platform for the full workflow. The environment has
-also been tested on osx-arm64, but macOS Apple Silicon users may run into
-platform-specific issues with compiled bioconda packages, especially `star` and
-`sra-tools`, or with compiled Python libraries. If the environment cannot be
-created or the verification commands below fail on Apple Silicon, try `mamba`
-first, then consider a Linux machine/container or an x86_64/Rosetta conda
-environment.
-
 The environment is expected to provide the workflow, Python analysis stack, and
 external command-line tools. Verify a new install with:
 
