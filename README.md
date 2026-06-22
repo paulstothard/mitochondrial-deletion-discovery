@@ -240,12 +240,35 @@ Generated files are intentionally ignored by git. See `.gitignore`.
 
 ## Install
 
+Use the listed channel order with strict channel priority so compiled packages
+come from compatible conda-forge/bioconda builds:
+
 ```bash
+conda config --set channel_priority strict
 conda env create -f envs/mitochondrial-deletions.yaml
 conda activate mitochondrial-deletions
 ```
 
-Snakemake will also create per-rule environments under `.snakemake/conda/` when `--use-conda` is used.
+The environment is expected to provide the workflow, Python analysis stack, and
+external command-line tools. Verify a new install with:
+
+```bash
+python -m pytest -q
+snakemake --version
+minimap2 --version
+samtools --version | head -1
+fasterq-dump --version | head -2
+fastp --version
+seqkit version
+```
+
+Then run a workflow dry-run before downloading data or building results:
+
+```bash
+snakemake --configfile config/datasets/rat_aging_muscle.yaml --dry-run --cores 1
+```
+
+Snakemake can also create per-rule environments under `.snakemake/conda/` when `--use-conda` is used.
 
 ## Run The Rat GPA Dataset
 
@@ -416,7 +439,7 @@ The dataset name is included in the deliverables folder name so copied report fo
 
 ```bash
 conda activate mitochondrial-deletions
-python -m unittest tests/test_core.py
+python -m pytest -q
 ```
 
 ## About `fasterq.tmp.*` Folders
