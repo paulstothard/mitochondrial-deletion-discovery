@@ -355,7 +355,7 @@ class CoreTests(unittest.TestCase):
         }
         known_hits = pd.DataFrame(
             [
-                {"sample": "s1", "deletion_id": "mtDNA_100_500", "read_id": "readA cell=1"},
+                {"sample": "s1", "deletion_id": "mtDNA_100_500", "read_id": "readA/1 cell=1"},
                 {"sample": "s1", "deletion_id": "mtDNA_100_500", "read_id": "readB cell=2"},
             ]
         )
@@ -375,6 +375,7 @@ class CoreTests(unittest.TestCase):
             self.assertIn((0, "shared_reads"), html_cells)
             self.assertTrue((Path(tmp) / "configured_vs_remap__s1__mtDNA_100_500__shared_reads.tsv").exists())
             shared = (Path(tmp) / "configured_vs_remap__s1__mtDNA_100_500__shared_reads.tsv").read_text(encoding="utf-8")
+            self.assertIn("readA/1", shared)
             self.assertIn("readA", shared)
 
     def test_analysis_deduplicates_same_read_from_rotated_references(self):

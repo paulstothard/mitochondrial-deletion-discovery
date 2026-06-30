@@ -114,7 +114,8 @@ def safe_sidecar_name(value: object) -> str:
 
 
 def read_key(value: object) -> str:
-    return str(value).strip().split()[0] if str(value).strip() else ""
+    text = str(value).strip().split()[0] if str(value).strip() else ""
+    return text.removesuffix("/1").removesuffix("/2")
 
 
 def write_exact_deletion_read_lists(junction_reads: pd.DataFrame, out_dir: Path) -> pd.DataFrame:
