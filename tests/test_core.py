@@ -15,7 +15,15 @@ from consolidate_deletions import cluster_rows
 from make_rotated_mt_reference import rotate_sequence
 from parse_split_alignments import aligned_bases_from_cigar, deletion_size, normalize_pos, parse_star_junction_line
 from prepare_reads import normalized_layout
-from plot_deletion_results import draw_feature_track_axis, mitochondrial_axis_bounds, value_columns
+from plot_deletion_results import (
+    draw_feature_track_axis,
+    mitochondrial_axis_bounds,
+    rainfall_point_sizes,
+    rainfall_support_limits,
+    rainfall_y_axis_min,
+    support_legend_values,
+    value_columns,
+)
 from estimate_breakpoint_reference_support import circular_window, window_covered
 from make_deletion_report import (
     exact_deletion_support_read_links,
@@ -282,6 +290,26 @@ class CoreTests(unittest.TestCase):
             self.assertTrue(all(text.get_clip_on() for text in feature_labels))
         finally:
             plt.close(fig)
+
+    def test_rainfall_support_scaling_uses_observed_range(self):
+        support = pd.Series([0.0034, 0.01, 0.1, 0.348])
+        support_min, support_max = rainfall_support_limits(support)
+        self.assertAlmostEqual(support_min, 0.0034)
+        self.assertAlmostEqual(support_max, 0.348)
+
+        sizes = rainfall_point_sizes(support, support_min, support_max)
+        self.assertLess(sizes[0], 10)
+        self.assertGreater(sizes[-1], 200)
+        self.assertTrue(all(a < b for a, b in zip(sizes, sizes[1:])))
+
+        ticks = support_legend_values(support_min, support_max)
+        self.assertGreaterEqual(ticks[0], support_min)
+        self.assertLessEqual(ticks[-1], support_max)
+        self.assertLess(ticks[-1], 1.0)
+
+    def test_rainfall_y_axis_min_tracks_deletion_cutoff(self):
+        self.assertEqual(rainfall_y_axis_min(pd.Series([104, 500, 5000])), 100)
+        self.assertEqual(rainfall_y_axis_min(pd.Series([12, 500])), 10)
 
     def test_report_table_html_wraps_tables_for_horizontal_scroll(self):
         import pandas as pd

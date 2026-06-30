@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from matplotlib import ticker
+from matplotlib import colors, ticker
 from matplotlib.patches import Rectangle
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy.spatial.distance import pdist, squareform
@@ -147,6 +147,56 @@ def empty(path: str, title: str, message: str = "No data available for this plot
     ax.set_title(title)
     ax.set_axis_off()
     save(fig, path)
+
+
+def rainfall_support_limits(values: pd.Series | np.ndarray) -> tuple[float, float]:
+    support = pd.to_numeric(pd.Series(values), errors="coerce")
+    support = support[np.isfinite(support) & (support > 0)]
+    if support.empty:
+        return 1.0, 1.0
+    return float(support.min()), float(support.max())
+
+
+def rainfall_point_sizes(values: pd.Series | np.ndarray, support_min: float, support_max: float) -> np.ndarray:
+    support = pd.to_numeric(pd.Series(values), errors="coerce").fillna(0).to_numpy(dtype=float)
+    min_size = 7.0
+    max_size = 245.0
+    if support_max <= support_min:
+        return np.full_like(support, (min_size + max_size) / 2, dtype=float)
+    fraction = np.clip((support - support_min) / (support_max - support_min), 0, 1)
+    return min_size + (max_size - min_size) * np.power(fraction, 0.92)
+
+
+def support_legend_values(support_min: float, support_max: float, n: int = 5) -> list[float]:
+    if support_max <= 0:
+        return []
+    if support_min <= 0 or support_min >= support_max:
+        return [support_max]
+    values = np.geomspace(support_min, support_max, n)
+    rounded: list[float] = []
+    for value in values:
+        if not rounded or not np.isclose(value, rounded[-1], rtol=0.04, atol=0):
+            rounded.append(float(value))
+    rounded[-1] = support_max
+    return rounded
+
+
+def support_tick_label(value: float) -> str:
+    if value >= 100:
+        return f"{value:.0f}"
+    if value >= 10:
+        return f"{value:.1f}".rstrip("0").rstrip(".")
+    if value >= 1:
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+    return f"{value:.3g}"
+
+
+def rainfall_y_axis_min(values: pd.Series | np.ndarray) -> float:
+    sizes = pd.to_numeric(pd.Series(values), errors="coerce")
+    sizes = sizes[np.isfinite(sizes) & (sizes > 0)]
+    if sizes.empty:
+        return 0.1
+    return max(0.1, float(10 ** np.floor(np.log10(float(sizes.min())))))
 
 
 def read_tsv_safe(path: str) -> pd.DataFrame:
@@ -655,7 +705,13 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
         old.unlink()
     for old in Path(path).parent.glob(f"{Path(path).stem}__*.svg"):
         old.unlink()
-    max_support = max(float(grouped["_plot_support"].max()), 1.0)
+    support_min, support_max = rainfall_support_limits(grouped["_plot_support"])
+    if support_min < support_max:
+        support_norm: colors.Normalize = colors.LogNorm(vmin=support_min, vmax=support_max)
+    else:
+        support_norm = colors.Normalize(vmin=0, vmax=max(support_max, 1.0))
+    legend_values = support_legend_values(support_min, support_max)
+    y_axis_min = rainfall_y_axis_min(grouped["deleted_size"])
     figures: list[plt.Figure] = []
     sidecars = []
     for group_index, group in enumerate(groups):
@@ -681,21 +737,21 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
         if sub.empty:
             ax.text(0.5, 0.5, "No deletion-supporting reads in this group", ha="center", va="center", transform=ax.transAxes)
         else:
-            plot_value = np.log10(sub["_plot_support"] + 1)
-            sizes = 18 + 260 * np.sqrt(sub["_plot_support"] / max_support)
+            sizes = rainfall_point_sizes(sub["_plot_support"], support_min, support_max)
             scatter = ax.scatter(
                 sub["midpoint"],
                 sub["deleted_size"],
-                c=plot_value,
+                c=sub["_plot_support"],
                 s=sizes,
                 cmap="magma",
+                norm=support_norm,
                 alpha=0.78,
                 edgecolors="#1f2933",
                 linewidths=0.35,
             )
         ax.set_title(f"Deletion Position/Size Abundance: {group}")
         ax.set_ylabel("Deleted size (bp)")
-        y_min = 0.1
+        y_min = y_axis_min
         y_max = max(10_000, float(sub["deleted_size"].max()) * 1.18) if not sub.empty else 10_000
         ax.set_ylim(y_min, y_max)
         format_deletion_size_log_axis(ax)
@@ -710,29 +766,32 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
 
             color_label_ax = fig.add_subplot(legend_grid[1, 0])
             color_label_ax.set_axis_off()
-            color_label = textwrap.fill(f"log10({support_label} + 1)", width=42)
+            color_label = textwrap.fill(support_label, width=42)
             color_label_ax.text(0.5, 0.5, color_label, ha="center", va="center", fontsize=8)
 
             cbar_ax = fig.add_subplot(legend_grid[2, 0])
             cbar = fig.colorbar(scatter, cax=cbar_ax, orientation="horizontal")
+            if legend_values:
+                cbar.set_ticks(legend_values)
+                cbar.set_ticklabels([support_tick_label(value) for value in legend_values])
             cbar.ax.tick_params(labelsize=8, length=3)
             cbar.outline.set_linewidth(0.5)
             handles = []
-            for value in [max_support * 0.1, max_support * 0.5, max_support]:
+            for value in legend_values:
                 if value <= 0:
                     continue
-                legend_color = scatter.cmap(scatter.norm(np.log10(value + 1)))
+                legend_color = scatter.cmap(scatter.norm(value))
                 handles.append(
                     plt.Line2D(
                         [],
                         [],
                         linestyle="",
                         marker="o",
-                        markersize=np.sqrt(18 + 260 * np.sqrt(value / max_support)) / 1.5,
+                        markersize=np.sqrt(rainfall_point_sizes([value], support_min, support_max)[0]) / 1.45,
                         markerfacecolor=legend_color,
                         markeredgecolor="#1f2933",
                         alpha=0.7,
-                        label=f"{value:.1f}",
+                        label=support_tick_label(value),
                     )
                 )
             if handles:
