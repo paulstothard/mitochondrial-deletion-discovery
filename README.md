@@ -137,7 +137,7 @@ options that do not affect index construction.
 
 ## Mapper Choices And Read Types
 
-The current default workflow uses competitive whole-genome first-pass assignment followed by minimap2 mitochondrial remapping. In default short-read mode, STAR maps reads to the full genome including mtDNA and the workflow retains reads with mitochondrial evidence. For long-read mode, minimap2 can map reads to the full genome including mtDNA and retain reads whose best evidence is mitochondrial. STAR or minimap2 first-pass output is read-selection/provenance, not a separate reported biological deletion stream.
+The current default workflow uses competitive whole-genome first-pass assignment followed by minimap2 mitochondrial remapping. In default short-read mode, STAR maps reads to the full genome including mtDNA and streams the unsorted alignment output directly into the mitochondrial-read selector. The selector uses read-name collation, not a full coordinate BAM plus name-sort, so the default path keeps the small remap-input FASTQs and STAR logs rather than large whole-genome BAMs. For long-read mode, minimap2 can map reads to the full genome including mtDNA and retain reads whose best evidence is mitochondrial. STAR or minimap2 first-pass output is read-selection/provenance, not a separate reported biological deletion stream.
 
 For short-read first-pass assignment, HISAT2 is worth evaluating because it is fast and may be sufficient if the goal is to assign reads competitively between nuclear and mitochondrial references. It is not the default because this repository currently has tested workflow rules for STAR and minimap2 first-pass selection, while HISAT2 would add another index/output convention to validate.
 
@@ -147,7 +147,7 @@ Phase 2 currently uses direct split/supplementary read alignments to support inf
 
 The first-pass selection mode is controlled by `mapping.first_pass_read_selection`:
 
-- `whole_genome_mt_best` maps against the full genome including mtDNA and passes reads with mitochondrial best/selected evidence to mitochondrial remapping. This is the default.
+- `whole_genome_mt_best` maps against the full genome including mtDNA and passes reads with mitochondrial best/selected evidence to mitochondrial remapping. This is the default. With `mapping.first_pass_aligner: star`, this path streams STAR output through read-name collation into the selector and does not create full-genome BAMs.
 - `nuclear_unmapped_reads` maps against a nuclear-only reference and passes unmapped reads to mitochondrial remapping. This is retained for strict depletion-style sensitivity checks, but it can discard real mitochondrial reads with NUMT-like nuclear alignments.
 - `mt_evidence_reads` is the legacy mode that maps against the full genome and scans the BAM/chimeric output for mitochondrial evidence before remapping.
 

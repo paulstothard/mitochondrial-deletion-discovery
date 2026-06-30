@@ -565,18 +565,22 @@ rule classify_mt_reads:
 
 rule select_whole_genome_mt_star:
     input:
-        bam=f"{OUTDIR}/alignments/full/{{sample}}.bam",
-        bai=f"{OUTDIR}/alignments/full/{{sample}}.bam.bai",
+        idx=f"{WORKDIR}/indexes/{SPECIES}/star_full",
+        r1=f"{OUTDIR}/trimmed/{{sample}}_R1.fastq.gz",
+        r2=f"{OUTDIR}/trimmed/{{sample}}_R2.fastq.gz",
     output:
         fastq=f"{OUTDIR}/{WHOLE_GENOME_MT_STAR_RULE_DIR}/{{sample}}.high_confidence_mt.fastq.gz",
         ambiguous=f"{OUTDIR}/{WHOLE_GENOME_MT_STAR_RULE_DIR}/{{sample}}.ambiguous_mt.fastq.gz",
         evidence=f"{OUTDIR}/{WHOLE_GENOME_MT_STAR_RULE_DIR}/{{sample}}.mt_evidence.fastq.gz",
         tsv=f"{OUTDIR}/{WHOLE_GENOME_MT_STAR_RULE_DIR}/{{sample}}.mt_read_classification.tsv",
         summary=f"{OUTDIR}/{WHOLE_GENOME_MT_STAR_RULE_DIR}/{{sample}}.mt_read_summary.json",
+        log=f"{OUTDIR}/alignments/full_stream/{{sample}}.Log.final.out",
     params:
         names=MT_NAMES,
         sample=lambda wildcards: wildcards.sample,
-        tmp=lambda wildcards: f"{OUTDIR}/alignments/full/.name_sort_tmp/{wildcards.sample}",
+        prefix=lambda wildcards: f"{OUTDIR}/alignments/full_stream/.star_tmp/{wildcards.sample}.",
+        tmp=lambda wildcards: f"{OUTDIR}/alignments/full_stream/.collate_tmp/{wildcards.sample}",
+        star_options=star_option_string("mapping"),
         min_mt_mapq=CFG["mapping"].get("whole_genome_min_mt_mapq", 0),
         min_mt_aligned_fraction=CFG["mapping"].get("whole_genome_min_mt_aligned_fraction", 0.5),
         ambiguous_mapq_below=CFG["mapping"].get("whole_genome_ambiguous_mapq_below", 10),
@@ -587,14 +591,20 @@ rule select_whole_genome_mt_star:
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:
-        "mkdir -p $(dirname {output.evidence}) $(dirname {params.tmp}) && "
-        "samtools sort -n -@ {threads} -O SAM -T {params.tmp}/sort {input.bam} | "
+        "mkdir -p $(dirname {output.evidence}) $(dirname {output.log}) $(dirname {params.prefix}) {params.tmp} && "
+        "READ2=$(if python scripts/fastq_gz_has_records.py {input.r2}; then printf ' {input.r2}'; fi) && "
+        "STAR --runThreadN {threads} --genomeDir {input.idx} --readFilesIn {input.r1} $READ2 "
+        "--readFilesCommand 'gzip -cd' --outFileNamePrefix {params.prefix} "
+        "--outSAMtype BAM Unsorted --outStd BAM_Unsorted {params.star_options} --twopassMode Basic | "
+        "samtools collate -@ {threads} -u -O -T {params.tmp}/collate - | "
         "python scripts/select_whole_genome_mt_from_sam.py --sample {params.sample} --mt-contig-names {params.names} "
+        "--input-format bam "
         "--mt-evidence-fastq {output.evidence} --high-confidence-fastq {output.fastq} "
         "--ambiguous-fastq {output.ambiguous} --classification {output.tsv} --summary {output.summary} "
         "--min-mt-mapq {params.min_mt_mapq} --min-mt-aligned-fraction {params.min_mt_aligned_fraction} "
         "--ambiguous-mapq-below {params.ambiguous_mapq_below} "
-        "--competing-nuclear-aligned-fraction {params.competing_nuclear_aligned_fraction} {params.keep_ambiguous}"
+        "--competing-nuclear-aligned-fraction {params.competing_nuclear_aligned_fraction} {params.keep_ambiguous} && "
+        "cp {params.prefix}Log.final.out {output.log}"
 
 
 rule select_nuclear_unmapped_star:

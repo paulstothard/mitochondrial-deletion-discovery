@@ -102,6 +102,7 @@ def main() -> None:
     parser.add_argument("--ambiguous-fastq", required=True)
     parser.add_argument("--classification", required=True)
     parser.add_argument("--summary", required=True)
+    parser.add_argument("--input-format", choices=["sam", "bam"], default="sam")
     parser.add_argument("--min-mt-mapq", type=int, default=0)
     parser.add_argument("--min-mt-aligned-fraction", type=float, default=0.5)
     parser.add_argument("--ambiguous-mapq-below", type=int, default=10)
@@ -115,7 +116,8 @@ def main() -> None:
     current_key: tuple[str, str] | None = None
     current_records: list[pysam.AlignedSegment] = []
     ensure_parent(args.mt_evidence_fastq)
-    with pysam.AlignmentFile("-", "r") as sam, gzip.open(args.mt_evidence_fastq, "wt", encoding="utf-8") as out_handle:
+    input_mode = "rb" if args.input_format == "bam" else "r"
+    with pysam.AlignmentFile("-", input_mode) as sam, gzip.open(args.mt_evidence_fastq, "wt", encoding="utf-8") as out_handle:
         for read in sam.fetch(until_eof=True):
             counts["alignment_records_examined"] += 1
             key = read_key(read)
