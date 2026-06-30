@@ -159,8 +159,8 @@ def rainfall_support_limits(values: pd.Series | np.ndarray) -> tuple[float, floa
 
 def rainfall_point_sizes(values: pd.Series | np.ndarray, support_min: float, support_max: float) -> np.ndarray:
     support = pd.to_numeric(pd.Series(values), errors="coerce").fillna(0).to_numpy(dtype=float)
-    min_size = 2.5
-    max_size = 420.0
+    min_size = 1.2
+    max_size = 600.0
     if support_max <= support_min:
         return np.full_like(support, (min_size + max_size) / 2, dtype=float)
     fraction = np.clip((support - support_min) / (support_max - support_min), 0, 1)
@@ -283,7 +283,7 @@ def draw_support_size_scale(
 ) -> None:
     ax.set_xscale("log")
     if support_min > 0 and support_max > support_min:
-        log_pad = max(0.16, (np.log10(support_max) - np.log10(support_min)) * 0.05)
+        log_pad = max(0.22, (np.log10(support_max) - np.log10(support_min)) * 0.06)
         ax.set_xlim(support_min / (10**log_pad), support_max * (10**log_pad))
     else:
         ax.set_xlim(support_min, support_max)
@@ -302,12 +302,12 @@ def draw_support_size_scale(
         clip_on=False,
         zorder=3,
     )
-    ax.set_title("Point area scale", fontsize=9, fontweight="bold", pad=3)
+    ax.set_title("Point size", fontsize=9, fontweight="bold", pad=3)
     ax.set_xticks(values)
     ax.set_xticklabels([support_tick_label(value) for value in values], fontsize=8)
     ax.xaxis.set_minor_locator(ticker.NullLocator())
     ax.tick_params(axis="x", length=3, width=0.7, pad=2)
-    ax.set_xlabel(f"{support_label}\npoint area is linear; axis is log-spaced", fontsize=8)
+    ax.set_xlabel(f"{support_label}\narea proportional to support", fontsize=8)
     ax.spines[["top", "right", "left"]].set_visible(False)
     ax.grid(True, axis="x", which="major", alpha=0.25, linewidth=0.6)
 
@@ -810,11 +810,11 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
         denom = pd.to_numeric(df[denom_col], errors="coerce")
         df["_support_weight"] = np.where(denom > 0, 1_000_000 / denom, 0)
         support_col = "support_per_million_mt_reads"
-        support_label = f"support {per_million_phrase(samples)}"
+        support_label = f"Deletion support {per_million_phrase(samples)}"
     else:
         df["_support_weight"] = 1.0
         support_col = "supporting_reads"
-        support_label = "supporting reads"
+        support_label = "Deletion-supporting reads"
     grouped = (
         df.groupby(["_plot_group", "left_breakpoint", "right_breakpoint", "deleted_size"], as_index=False)
         .agg(supporting_reads=("sample", "size"), support_per_million_mt_reads=("_support_weight", "sum"))
@@ -838,7 +838,7 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
     sidecars = []
     for group_index, group in enumerate(groups):
         sub = grouped[grouped["_plot_group"] == group].sort_values("_plot_support", ascending=False).head(300)
-        draw_sub = sub.sort_values("_plot_support", ascending=True)
+        draw_sub = sub.sort_values("_plot_support", ascending=False)
         fig = plt.figure(figsize=(14.4, 6.9), constrained_layout=True)
         grid = fig.add_gridspec(
             2,
@@ -889,7 +889,7 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
 
             color_label_ax = fig.add_subplot(legend_grid[1, 0])
             color_label_ax.set_axis_off()
-            color_label = textwrap.fill(f"{support_label} (log color scale)", width=42)
+            color_label = f"{support_label}\nlog color scale"
             color_label_ax.text(0.5, 0.5, color_label, ha="center", va="center", fontsize=8)
 
             cbar_ax = fig.add_subplot(legend_grid[2, 0])
@@ -897,7 +897,9 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
             if legend_values:
                 cbar.set_ticks(legend_values)
                 cbar.set_ticklabels([support_tick_label(value) for value in legend_values])
-            cbar.ax.tick_params(labelsize=8, length=3)
+            cbar.ax.xaxis.set_minor_locator(ticker.NullLocator())
+            cbar.ax.tick_params(axis="x", which="minor", bottom=False, top=False)
+            cbar.ax.tick_params(axis="x", which="major", labelsize=8, length=3)
             cbar.outline.set_linewidth(0.5)
             if legend_values:
                 size_ax = fig.add_subplot(legend_grid[4, 0])

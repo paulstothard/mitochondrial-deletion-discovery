@@ -299,8 +299,8 @@ class CoreTests(unittest.TestCase):
         self.assertAlmostEqual(support_max, 0.348)
 
         sizes = rainfall_point_sizes(support, support_min, support_max)
-        self.assertLess(sizes[0], 6)
-        self.assertGreater(sizes[-1], 350)
+        self.assertLess(sizes[0], 3)
+        self.assertGreater(sizes[-1], 500)
         self.assertTrue(all(a < b for a, b in zip(sizes, sizes[1:])))
 
         scale_min, scale_max = support_scale_limits(support_min, support_max)
