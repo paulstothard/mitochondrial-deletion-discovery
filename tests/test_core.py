@@ -19,6 +19,7 @@ from plot_deletion_results import (
     draw_feature_track_axis,
     mitochondrial_axis_bounds,
     rainfall_point_sizes,
+    support_scale_limits,
     rainfall_support_limits,
     rainfall_y_axis_min,
     support_legend_values,
@@ -298,14 +299,17 @@ class CoreTests(unittest.TestCase):
         self.assertAlmostEqual(support_max, 0.348)
 
         sizes = rainfall_point_sizes(support, support_min, support_max)
-        self.assertLess(sizes[0], 10)
-        self.assertGreater(sizes[-1], 200)
+        self.assertLess(sizes[0], 6)
+        self.assertGreater(sizes[-1], 350)
         self.assertTrue(all(a < b for a, b in zip(sizes, sizes[1:])))
 
-        ticks = support_legend_values(support_min, support_max)
-        self.assertGreaterEqual(ticks[0], support_min)
-        self.assertLessEqual(ticks[-1], support_max)
-        self.assertLess(ticks[-1], 1.0)
+        scale_min, scale_max = support_scale_limits(support_min, support_max)
+        self.assertEqual((scale_min, scale_max), (0.002, 0.5))
+        ticks = support_legend_values(scale_min, scale_max)
+        self.assertEqual(ticks, [0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5])
+
+        wide_ticks = support_legend_values(*support_scale_limits(0.16, 821))
+        self.assertEqual(wide_ticks, [0.1, 1.0, 10.0, 100.0, 1000.0])
 
     def test_rainfall_y_axis_min_tracks_deletion_cutoff(self):
         self.assertEqual(rainfall_y_axis_min(pd.Series([104, 500, 5000])), 100)

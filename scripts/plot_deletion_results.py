@@ -159,26 +159,107 @@ def rainfall_support_limits(values: pd.Series | np.ndarray) -> tuple[float, floa
 
 def rainfall_point_sizes(values: pd.Series | np.ndarray, support_min: float, support_max: float) -> np.ndarray:
     support = pd.to_numeric(pd.Series(values), errors="coerce").fillna(0).to_numpy(dtype=float)
-    min_size = 7.0
-    max_size = 245.0
+    min_size = 2.5
+    max_size = 420.0
     if support_max <= support_min:
         return np.full_like(support, (min_size + max_size) / 2, dtype=float)
     fraction = np.clip((support - support_min) / (support_max - support_min), 0, 1)
-    return min_size + (max_size - min_size) * np.power(fraction, 0.92)
+    return min_size + (max_size - min_size) * fraction
 
 
-def support_legend_values(support_min: float, support_max: float, n: int = 5) -> list[float]:
+def nice_support_value(value: float) -> float:
+    if value <= 0 or not np.isfinite(value):
+        return 0.0
+    exponent = np.floor(np.log10(value))
+    scaled = value / (10**exponent)
+    if scaled <= 1.5:
+        mantissa = 1.0
+    elif scaled <= 3.5:
+        mantissa = 2.0
+    elif scaled <= 7.5:
+        mantissa = 5.0
+    else:
+        mantissa = 10.0
+    return float(mantissa * (10**exponent))
+
+
+def nice_support_floor(value: float) -> float:
+    if value <= 0 or not np.isfinite(value):
+        return 0.0
+    exponent = np.floor(np.log10(value))
+    scaled = value / (10**exponent)
+    if scaled < 2:
+        mantissa = 1.0
+    elif scaled < 5:
+        mantissa = 2.0
+    else:
+        mantissa = 5.0
+    return float(mantissa * (10**exponent))
+
+
+def nice_support_ceiling(value: float) -> float:
+    if value <= 0 or not np.isfinite(value):
+        return 0.0
+    exponent = np.floor(np.log10(value))
+    scaled = value / (10**exponent)
+    if scaled <= 1:
+        mantissa = 1.0
+    elif scaled <= 2:
+        mantissa = 2.0
+    elif scaled <= 5:
+        mantissa = 5.0
+    else:
+        mantissa = 10.0
+    return float(mantissa * (10**exponent))
+
+
+def support_scale_limits(support_min: float, support_max: float) -> tuple[float, float]:
+    if support_max <= 0:
+        return 1.0, 1.0
+    if support_min <= 0 or support_min >= support_max:
+        value = nice_support_value(support_max)
+        return value, value
+    return nice_support_floor(support_min), nice_support_ceiling(support_max)
+
+
+def nice_support_candidates(support_min: float, support_max: float) -> list[float]:
+    if support_max <= 0 or support_min <= 0:
+        return []
+    start_exp = int(np.floor(np.log10(support_min))) - 1
+    end_exp = int(np.ceil(np.log10(support_max))) + 1
+    candidates = []
+    for exponent in range(start_exp, end_exp + 1):
+        for mantissa in (1, 2, 5):
+            value = float(mantissa * (10**exponent))
+            if support_min <= value <= support_max:
+                candidates.append(value)
+    return sorted(set(candidates))
+
+
+def support_legend_values(support_min: float, support_max: float) -> list[float]:
     if support_max <= 0:
         return []
     if support_min <= 0 or support_min >= support_max:
-        return [support_max]
-    values = np.geomspace(support_min, support_max, n)
-    rounded: list[float] = []
-    for value in values:
-        if not rounded or not np.isclose(value, rounded[-1], rtol=0.04, atol=0):
-            rounded.append(float(value))
-    rounded[-1] = support_max
-    return rounded
+        return [nice_support_value(support_max)]
+    candidates = nice_support_candidates(support_min, support_max)
+    if not candidates:
+        return sorted(set([nice_support_value(support_min), nice_support_value(support_max)]))
+    order_span = np.log10(support_max) - np.log10(support_min)
+    if len(candidates) <= 8 and order_span <= 2.7:
+        return candidates
+    start_exp = int(np.ceil(np.log10(support_min)))
+    end_exp = int(np.floor(np.log10(support_max)))
+    powers = [float(10**exponent) for exponent in range(start_exp, end_exp + 1)]
+    values = []
+    if not powers or not np.isclose(powers[0], support_min):
+        values.append(support_min)
+    values.extend(powers)
+    if not np.isclose(values[-1], support_max):
+        values.append(support_max)
+    if len(values) <= 8:
+        return values
+    keep_indexes = np.linspace(0, len(values) - 1, 8).round().astype(int)
+    return [values[index] for index in sorted(set(keep_indexes))]
 
 
 def support_tick_label(value: float) -> str:
@@ -189,6 +270,45 @@ def support_tick_label(value: float) -> str:
     if value >= 1:
         return f"{value:.2f}".rstrip("0").rstrip(".")
     return f"{value:.3g}"
+
+
+def draw_support_size_scale(
+    ax: plt.Axes,
+    values: list[float],
+    support_min: float,
+    support_max: float,
+    support_norm: colors.Normalize,
+    cmap,
+    support_label: str,
+) -> None:
+    ax.set_xscale("log")
+    if support_min > 0 and support_max > support_min:
+        log_pad = max(0.08, (np.log10(support_max) - np.log10(support_min)) * 0.035)
+        ax.set_xlim(support_min / (10**log_pad), support_max * (10**log_pad))
+    else:
+        ax.set_xlim(support_min, support_max)
+    ax.set_ylim(0, 1)
+    ax.set_yticks([])
+    ax.scatter(
+        values,
+        [0.56] * len(values),
+        s=rainfall_point_sizes(values, support_min, support_max),
+        c=values,
+        cmap=cmap,
+        norm=support_norm,
+        alpha=0.78,
+        edgecolors="#1f2933",
+        linewidths=0.45,
+        zorder=3,
+    )
+    ax.set_title("Point area scale", fontsize=9, fontweight="bold", pad=3)
+    ax.set_xticks(values)
+    ax.set_xticklabels([support_tick_label(value) for value in values], fontsize=8)
+    ax.xaxis.set_minor_locator(ticker.NullLocator())
+    ax.tick_params(axis="x", length=3, width=0.7, pad=2)
+    ax.set_xlabel(f"{support_label}\npoint area is linear; axis is log-spaced", fontsize=8)
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.grid(True, axis="x", which="major", alpha=0.25, linewidth=0.6)
 
 
 def rainfall_y_axis_min(values: pd.Series | np.ndarray) -> float:
@@ -705,7 +825,8 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
         old.unlink()
     for old in Path(path).parent.glob(f"{Path(path).stem}__*.svg"):
         old.unlink()
-    support_min, support_max = rainfall_support_limits(grouped["_plot_support"])
+    observed_support_min, observed_support_max = rainfall_support_limits(grouped["_plot_support"])
+    support_min, support_max = support_scale_limits(observed_support_min, observed_support_max)
     if support_min < support_max:
         support_norm: colors.Normalize = colors.LogNorm(vmin=support_min, vmax=support_max)
     else:
@@ -716,6 +837,7 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
     sidecars = []
     for group_index, group in enumerate(groups):
         sub = grouped[grouped["_plot_group"] == group].sort_values("_plot_support", ascending=False).head(300)
+        draw_sub = sub.sort_values("_plot_support", ascending=True)
         fig = plt.figure(figsize=(14.4, 6.9), constrained_layout=True)
         grid = fig.add_gridspec(
             2,
@@ -737,11 +859,11 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
         if sub.empty:
             ax.text(0.5, 0.5, "No deletion-supporting reads in this group", ha="center", va="center", transform=ax.transAxes)
         else:
-            sizes = rainfall_point_sizes(sub["_plot_support"], support_min, support_max)
+            sizes = rainfall_point_sizes(draw_sub["_plot_support"], support_min, support_max)
             scatter = ax.scatter(
-                sub["midpoint"],
-                sub["deleted_size"],
-                c=sub["_plot_support"],
+                draw_sub["midpoint"],
+                draw_sub["deleted_size"],
+                c=draw_sub["_plot_support"],
                 s=sizes,
                 cmap="magma",
                 norm=support_norm,
@@ -766,7 +888,7 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
 
             color_label_ax = fig.add_subplot(legend_grid[1, 0])
             color_label_ax.set_axis_off()
-            color_label = textwrap.fill(support_label, width=42)
+            color_label = textwrap.fill(f"{support_label} (log color scale)", width=42)
             color_label_ax.text(0.5, 0.5, color_label, ha="center", va="center", fontsize=8)
 
             cbar_ax = fig.add_subplot(legend_grid[2, 0])
@@ -776,36 +898,9 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
                 cbar.set_ticklabels([support_tick_label(value) for value in legend_values])
             cbar.ax.tick_params(labelsize=8, length=3)
             cbar.outline.set_linewidth(0.5)
-            handles = []
-            for value in legend_values:
-                if value <= 0:
-                    continue
-                legend_color = scatter.cmap(scatter.norm(value))
-                handles.append(
-                    plt.Line2D(
-                        [],
-                        [],
-                        linestyle="",
-                        marker="o",
-                        markersize=np.sqrt(rainfall_point_sizes([value], support_min, support_max)[0]) / 1.45,
-                        markerfacecolor=legend_color,
-                        markeredgecolor="#1f2933",
-                        alpha=0.7,
-                        label=support_tick_label(value),
-                    )
-                )
-            if handles:
+            if legend_values:
                 size_ax = fig.add_subplot(legend_grid[4, 0])
-                size_ax.set_axis_off()
-                size_ax.legend(
-                    handles=handles,
-                    title=f"Point size:\n{support_label}",
-                    loc="center",
-                    borderaxespad=0,
-                    fontsize=8,
-                    title_fontsize=8,
-                    frameon=True,
-                )
+                draw_support_size_scale(size_ax, legend_values, support_min, support_max, scatter.norm, scatter.cmap, support_label)
         else:
             blank_legend_ax = fig.add_subplot(grid[:, 1])
             blank_legend_ax.set_axis_off()
