@@ -283,7 +283,7 @@ def draw_support_size_scale(
 ) -> None:
     ax.set_xscale("log")
     if support_min > 0 and support_max > support_min:
-        log_pad = max(0.08, (np.log10(support_max) - np.log10(support_min)) * 0.035)
+        log_pad = max(0.16, (np.log10(support_max) - np.log10(support_min)) * 0.05)
         ax.set_xlim(support_min / (10**log_pad), support_max * (10**log_pad))
     else:
         ax.set_xlim(support_min, support_max)
@@ -299,6 +299,7 @@ def draw_support_size_scale(
         alpha=0.78,
         edgecolors="#1f2933",
         linewidths=0.45,
+        clip_on=False,
         zorder=3,
     )
     ax.set_title("Point area scale", fontsize=9, fontweight="bold", pad=3)
