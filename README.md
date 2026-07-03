@@ -6,7 +6,8 @@ Current dataset configs:
 
 - rat aging muscle GPA dataset from NCBI BioProject `PRJNA793055`;
 - local human common mtDNA deletion dataset with HDFn, KSS-95, and KSS-96 FASTQs;
-- local human nanopore mtDNA dataset using an uncompressed FASTQ staged by the workflow.
+- local human nanopore mtDNA dataset using an uncompressed FASTQ staged by the workflow;
+- local matched human bulk sequencing dataset.
 
 ## Conceptual Model
 
@@ -21,7 +22,7 @@ The main report is focused on mitochondrial circular-remap deletion calls. The f
 Main stages:
 
 1. Stage or download FASTQs.
-2. Trim with `fastp`.
+2. Optionally trim with `fastp`.
 3. Use a first-pass genome alignment to select reads whose best/selected evidence is mitochondrial.
 4. Optionally run configured literal sequence searches over retained remap-input FASTQs.
 5. Remap retained reads with minimap2 to normal and rotated mitochondrial references.
@@ -214,6 +215,7 @@ Main plots include:
 - deletion size distributions, including log-y and size-restricted views;
 - deletion rainfall plots shown as full-size per-group figures by left breakpoint, right breakpoint, and circular deleted-interval midpoint;
 - breakpoint-pair support maps showing which deletion starts pair with which deletion ends;
+- pooled breakpoint support-density plots showing where deletion endpoints accumulate, with binned support split into left and right breakpoint bars behind a circular-smoothed total-support curve;
 - affected-feature normalized support and within-group proportions;
 - collapsed feature-impact classes;
 - per-gene affected burden;
@@ -222,7 +224,7 @@ Main plots include:
 
 Plot group order and colors are chosen once per report and reused across plots. For two-factor designs with `age` and `treatment`, groups are ordered by age and then treatment, with control-like groups first within each age. Control-like groups use subdued colors and treatment groups use red-family colors when possible.
 
-The deletion rainfall plots and breakpoint-pair support map are visual displays, not separate calling steps. They all use the same display rule. By default `plots.rainfall_min_support_per_million: 0.0`, so low-abundance datasets are not hidden by a normalized-support cutoff. `plots.rainfall_max_points_per_group: 300` limits each group panel to the highest-support displayed exact deletions so dense datasets remain readable. These settings affect only the plots; the exact-deletion tables, matrices, comparisons, and read-list links retain the full analyzed call set subject to their own table-display filters.
+The deletion rainfall plots, breakpoint-pair support map, and pooled breakpoint support-density plots are visual displays, not separate calling steps. They use the same display rule. By default `plots.rainfall_min_support_per_million: 0.0`, so low-abundance datasets are not hidden by a normalized-support cutoff. `plots.rainfall_max_points_per_group: 300` limits each group panel to the highest-support displayed exact deletions so dense datasets remain readable. These settings affect only the plots; the exact-deletion tables, matrices, comparisons, and read-list links retain the full analyzed call set subject to their own table-display filters.
 
 Large result tables in the HTML report are searchable, sortable, and paged. Small tables are shown directly without search controls.
 

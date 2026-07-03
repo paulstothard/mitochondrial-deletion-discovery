@@ -194,6 +194,8 @@ rule all:
         f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
         f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
         f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
+        f"{OUTDIR}/plots/pooled_breakpoint_support_density.pdf",
+        f"{OUTDIR}/plots/pooled_breakpoint_support_density_capped.pdf",
         f"{OUTDIR}/plots/affected_feature_support.pdf",
         f"{OUTDIR}/plots/affected_feature_counts.pdf",
         f"{OUTDIR}/plots/affected_feature_proportions.pdf",
@@ -903,6 +905,8 @@ rule plot_results:
         rainfall_right=f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
         rainfall_midpoint=f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
         breakpoint_pair_map=f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
+        endpoint_density=f"{OUTDIR}/plots/pooled_breakpoint_support_density.pdf",
+        endpoint_density_capped=f"{OUTDIR}/plots/pooled_breakpoint_support_density_capped.pdf",
         affected_support=f"{OUTDIR}/plots/affected_feature_support.pdf",
         affected_counts=f"{OUTDIR}/plots/affected_feature_counts.pdf",
         affected_proportions=f"{OUTDIR}/plots/affected_feature_proportions.pdf",
@@ -917,6 +921,8 @@ rule plot_results:
         group=CFG["dataset"].get("primary_group_column", ""),
         rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
         rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 300),
+        endpoint_density_bin_size=CFG.get("plots", {}).get("endpoint_density_bin_size", 50),
+        endpoint_density_smooth_bins=CFG.get("plots", {}).get("endpoint_density_smooth_bins", 7),
         mt_length=MT_LENGTH,
     conda:
         "envs/mitochondrial-deletions.yaml"
@@ -934,13 +940,16 @@ rule plot_results:
         "--out-size-medium {output.size_medium} --out-size-large {output.size_large} "
         "--out-rainfall-left {output.rainfall_left} --out-rainfall-right {output.rainfall_right} "
         "--out-rainfall-midpoint {output.rainfall_midpoint} --out-breakpoint-pair-map {output.breakpoint_pair_map} "
+        "--out-endpoint-density {output.endpoint_density} --out-endpoint-density-capped {output.endpoint_density_capped} "
         "--out-affected-support {output.affected_support} "
         "--out-affected-counts {output.affected_counts} --out-affected-proportions {output.affected_proportions} "
         "--out-impact-class {output.impact} --out-per-gene {output.per_gene} --out-exact-recurrence {output.recurrence} "
         "--out-exact-pca {output.exact_pca} --out-exact-mds {output.exact_mds} "
         "--out-affected-pca {output.affected_pca} --out-affected-mds {output.affected_mds} "
         "--rainfall-min-support-per-million {params.rainfall_min_support_per_million} "
-        "--rainfall-max-points-per-group {params.rainfall_max_points_per_group}"
+        "--rainfall-max-points-per-group {params.rainfall_max_points_per_group} "
+        "--endpoint-density-bin-size {params.endpoint_density_bin_size} "
+        "--endpoint-density-smooth-bins {params.endpoint_density_smooth_bins}"
 
 
 rule make_report:
@@ -977,6 +986,8 @@ rule make_report:
             f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
             f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
             f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
+            f"{OUTDIR}/plots/pooled_breakpoint_support_density.pdf",
+            f"{OUTDIR}/plots/pooled_breakpoint_support_density_capped.pdf",
             f"{OUTDIR}/plots/affected_feature_support.pdf",
             f"{OUTDIR}/plots/affected_feature_counts.pdf",
             f"{OUTDIR}/plots/affected_feature_proportions.pdf",
@@ -1028,6 +1039,8 @@ rule make_deliverables:
         rainfall_right=f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
         rainfall_midpoint=f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
         breakpoint_pair_map=f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
+        endpoint_density=f"{OUTDIR}/plots/pooled_breakpoint_support_density.pdf",
+        endpoint_density_capped=f"{OUTDIR}/plots/pooled_breakpoint_support_density_capped.pdf",
         affected_support=f"{OUTDIR}/plots/affected_feature_support.pdf",
         recurrence=f"{OUTDIR}/plots/exact_deletion_recurrence.pdf",
     output:

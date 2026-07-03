@@ -1067,6 +1067,166 @@ def adjusted_breakpoint_ticks(genome_length: int, y_max: float) -> tuple[list[fl
     return ticks, labels
 
 
+def circular_rolling_mean(values: np.ndarray, window: int) -> np.ndarray:
+    arr = np.asarray(values, dtype=float)
+    if len(arr) == 0 or window <= 1:
+        return arr.copy()
+    if window % 2 == 0:
+        window += 1
+    radius = window // 2
+    total = np.zeros_like(arr, dtype=float)
+    for shift in range(-radius, radius + 1):
+        total += np.roll(arr, shift)
+    return total / float(window)
+
+
+def pooled_endpoint_density(display_grouped: pd.DataFrame, genome_length: int, bin_size: int, smooth_bins: int) -> pd.DataFrame:
+    if display_grouped.empty or genome_length <= 0:
+        return pd.DataFrame(columns=["bin_index", "endpoint_count", "left_endpoint_count", "right_endpoint_count", "summed_support", "left_support", "right_support", "bin_start", "bin_end", "bin_midpoint", "smoothed_summed_support", "smoothed_endpoint_count"])
+    bin_size = max(1, int(bin_size))
+    endpoints = pd.concat(
+        [
+            display_grouped[["left_breakpoint", "_plot_support"]].rename(columns={"left_breakpoint": "coordinate"}).assign(endpoint_side="left"),
+            display_grouped[["right_breakpoint", "_plot_support"]].rename(columns={"right_breakpoint": "coordinate"}).assign(endpoint_side="right"),
+        ],
+        ignore_index=True,
+    )
+    endpoints["coordinate"] = pd.to_numeric(endpoints["coordinate"], errors="coerce")
+    endpoints["support"] = pd.to_numeric(endpoints["_plot_support"], errors="coerce")
+    endpoints = endpoints.dropna(subset=["coordinate", "support"])
+    endpoints = endpoints[(endpoints["coordinate"] >= 1) & (endpoints["coordinate"] <= genome_length)]
+    endpoints["bin_index"] = ((endpoints["coordinate"] - 1) // bin_size).astype(int)
+    n_bins = int(np.ceil(genome_length / bin_size))
+    base = pd.DataFrame({"bin_index": np.arange(n_bins, dtype=int)})
+    side = (
+        endpoints.groupby(["bin_index", "endpoint_side"], as_index=False)
+        .agg(endpoint_count=("coordinate", "size"), support=("support", "sum"))
+    )
+    counts = side.pivot_table(index="bin_index", columns="endpoint_side", values="endpoint_count", aggfunc="sum", fill_value=0)
+    support = side.pivot_table(index="bin_index", columns="endpoint_side", values="support", aggfunc="sum", fill_value=0)
+    agg = base.copy()
+    agg["left_endpoint_count"] = counts.get("left", pd.Series(0, index=counts.index)).reindex(agg["bin_index"], fill_value=0).to_numpy()
+    agg["right_endpoint_count"] = counts.get("right", pd.Series(0, index=counts.index)).reindex(agg["bin_index"], fill_value=0).to_numpy()
+    agg["left_support"] = support.get("left", pd.Series(0, index=support.index)).reindex(agg["bin_index"], fill_value=0).to_numpy()
+    agg["right_support"] = support.get("right", pd.Series(0, index=support.index)).reindex(agg["bin_index"], fill_value=0).to_numpy()
+    agg["endpoint_count"] = agg["left_endpoint_count"] + agg["right_endpoint_count"]
+    agg["summed_support"] = agg["left_support"] + agg["right_support"]
+    out = agg
+    out["bin_start"] = out["bin_index"] * bin_size + 1
+    out["bin_end"] = np.minimum(out["bin_start"] + bin_size - 1, genome_length)
+    out["bin_midpoint"] = (out["bin_start"] + out["bin_end"]) / 2.0
+    out["smoothed_summed_support"] = circular_rolling_mean(out["summed_support"].to_numpy(dtype=float), max(1, int(smooth_bins)))
+    out["smoothed_endpoint_count"] = circular_rolling_mean(out["endpoint_count"].to_numpy(dtype=float), max(1, int(smooth_bins)))
+    return out
+
+
+def endpoint_density_hotspots(density: pd.DataFrame, genome_length: int, max_labels: int = 8) -> list[dict[str, float]]:
+    if density.empty or "smoothed_summed_support" not in density.columns:
+        return []
+    work = density.copy()
+    y = pd.to_numeric(work["smoothed_summed_support"], errors="coerce").fillna(0).to_numpy(dtype=float)
+    if len(y) < 3 or np.nanmax(y) <= 0:
+        return []
+    left = np.roll(y, 1)
+    right = np.roll(y, -1)
+    candidates = work[(y >= left) & (y >= right) & (work["smoothed_summed_support"] > 0)].copy()
+    candidates = candidates.sort_values("smoothed_summed_support", ascending=False)
+    selected: list[dict[str, float]] = []
+    min_spacing = max(250, int(genome_length * 0.04))
+    for _, row in candidates.iterrows():
+        coord = float(row["bin_midpoint"])
+        if any(min(abs(coord - item["coord"]), genome_length - abs(coord - item["coord"])) < min_spacing for item in selected):
+            continue
+        selected.append({"coord": coord, "height": float(row["smoothed_summed_support"])})
+        if len(selected) >= max_labels:
+            break
+    return selected
+
+
+def endpoint_density_plot(
+    display_grouped: pd.DataFrame,
+    features: pd.DataFrame,
+    config: dict,
+    mt_length: int,
+    path: str,
+    title: str,
+    support_label: str,
+    bin_size: int = 50,
+    smooth_bins: int = 7,
+    capped: bool = False,
+) -> None:
+    if display_grouped.empty:
+        empty(path, title, "No exact deletions meet the endpoint-density display threshold")
+        return
+    plot_features = location_features(features, config)
+    genome_length = location_genome_length(mt_length, plot_features, display_grouped)
+    density = pooled_endpoint_density(display_grouped, genome_length, bin_size, smooth_bins)
+    if density.empty:
+        empty(path, title, "No breakpoint endpoints are available for this plot")
+        return
+    fig = plt.figure(figsize=(15.2, 6.6), constrained_layout=True)
+    grid = fig.add_gridspec(2, 1, height_ratios=[4.65, 1.05], hspace=0.04)
+    ax = fig.add_subplot(grid[0, 0])
+    feature_ax = fig.add_subplot(grid[1, 0], sharex=ax)
+    x = density["bin_midpoint"].to_numpy(dtype=float)
+    raw_left = density["left_support"].to_numpy(dtype=float)
+    raw_right = density["right_support"].to_numpy(dtype=float)
+    raw = density["summed_support"].to_numpy(dtype=float)
+    y = density["smoothed_summed_support"].to_numpy(dtype=float)
+    width = max(1, int(bin_size)) * 0.88
+    ax.bar(x, raw_left, width=width, color="#5b7db2", alpha=0.28, edgecolor="none", label=f"left endpoints, {int(bin_size)} bp bins", zorder=1)
+    ax.bar(x, raw_right, width=width, bottom=raw_left, color="#d07a4f", alpha=0.28, edgecolor="none", label=f"right endpoints, {int(bin_size)} bp bins", zorder=1)
+    ax.fill_between(x, y, color="#2a6f97", alpha=0.28, linewidth=0, label="circular-smoothed support", zorder=2)
+    ax.plot(x, y, color="#1d5f85", linewidth=1.35, zorder=3)
+    full_ymax = max(1.0, float(np.nanmax(np.r_[raw, y])))
+    if capped:
+        nonzero = np.r_[raw[raw > 0], y[y > 0]]
+        cap = float(np.nanpercentile(nonzero, 96)) if len(nonzero) else full_ymax
+        ymax = max(1.0, min(full_ymax, cap))
+        ax.set_ylim(0, ymax * 1.12)
+        ax.text(0.995, 0.90, f"y-axis capped at {support_tick_label(ymax)} to show secondary hotspots", ha="right", va="top", transform=ax.transAxes, fontsize=8, color="#374151")
+    else:
+        ax.set_ylim(0, full_ymax * 1.12)
+    ax.set_xlim(1, genome_length)
+    ax.set_title(title, pad=15)
+    normalized = "per million" in support_label.lower()
+    ax.text(
+        0.5,
+        1.01,
+        f"{'support per million usable reads; ' if normalized else ''}left and right endpoints pooled; {int(bin_size)} bp bins; {int(smooth_bins) * int(bin_size)} bp circular smoothing window",
+        ha="center",
+        va="bottom",
+        transform=ax.transAxes,
+        fontsize=9,
+        color="#4b5563",
+    )
+    ax.set_ylabel("Summed deletion support at endpoints")
+    ax.grid(axis="both", color="#d9dee7", linewidth=0.65, alpha=0.55)
+    ax.legend(loc="upper right", frameon=True, fontsize=8)
+    label_ceiling = ax.get_ylim()[1]
+    for hotspot in endpoint_density_hotspots(density, genome_length):
+        coord = hotspot["coord"]
+        height = min(hotspot["height"], label_ceiling * 0.88)
+        half_window = max(1, int(smooth_bins) * int(bin_size) / 2)
+        start = max(1, int(round(coord - half_window)))
+        end = min(genome_length, int(round(coord + half_window)))
+        ax.annotate(
+            f"{start:,}-{end:,} bp",
+            xy=(coord, height),
+            xytext=(0, 12),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="#1f2937",
+            arrowprops={"arrowstyle": "-", "color": "#6b7280", "linewidth": 0.6, "alpha": 0.8},
+            clip_on=True,
+        )
+    draw_location_feature_track(feature_ax, plot_features, genome_length, x_min=1, x_max=genome_length)
+    feature_ax.set_xlabel("Mitochondrial genome coordinate (bp)")
+    save(fig, path)
+
+
 def write_location_plot_pages(figures: list[plt.Figure], path: str) -> None:
     ensure_parent(path)
     with PdfPages(path) as pdf:
@@ -1376,8 +1536,12 @@ def location_plots(
     out_right: str,
     out_midpoint: str,
     out_pair_map: str,
+    out_endpoint_density: str,
+    out_endpoint_density_capped: str,
     min_support_per_million: float = 0.0,
     max_points_per_group: int = 0,
+    endpoint_density_bin_size: int = 50,
+    endpoint_density_smooth_bins: int = 7,
 ) -> None:
     display_grouped, groups, support_label = prepare_location_plot_data(
         reads,
@@ -1392,6 +1556,8 @@ def location_plots(
     location_rainfall(display_grouped, groups, features, config, mt_length, out_right, "Deletion Rainfall By Canonical Right Breakpoint", "right_breakpoint", "Canonical right breakpoint on mitochondrial genome (bp)", support_label)
     location_rainfall(display_grouped, groups, features, config, mt_length, out_midpoint, "Deletion Rainfall By Circular Deleted-Interval Midpoint", "circular_midpoint", "Circular midpoint of deleted interval on mitochondrial genome (bp)", support_label)
     breakpoint_pair_support_map(display_grouped, groups, features, config, mt_length, out_pair_map, support_label)
+    endpoint_density_plot(display_grouped, features, config, mt_length, out_endpoint_density, "Pooled Breakpoint Support Density", support_label, bin_size=endpoint_density_bin_size, smooth_bins=endpoint_density_smooth_bins, capped=False)
+    endpoint_density_plot(display_grouped, features, config, mt_length, out_endpoint_density_capped, "Pooled Breakpoint Support Density, Capped Scale", support_label, bin_size=endpoint_density_bin_size, smooth_bins=endpoint_density_smooth_bins, capped=True)
 
 
 def category_bar(matrix: pd.DataFrame, samples: pd.DataFrame, group_col: str, path: str, title: str, ylabel: str, top_n: int = 14, proportional: bool = False) -> None:
@@ -1610,6 +1776,8 @@ def main() -> None:
     parser.add_argument("--out-rainfall-right", required=True)
     parser.add_argument("--out-rainfall-midpoint", required=True)
     parser.add_argument("--out-breakpoint-pair-map", required=True)
+    parser.add_argument("--out-endpoint-density", required=True)
+    parser.add_argument("--out-endpoint-density-capped", required=True)
     parser.add_argument("--out-affected-support", required=True)
     parser.add_argument("--out-affected-counts", required=True)
     parser.add_argument("--out-affected-proportions", required=True)
@@ -1622,6 +1790,8 @@ def main() -> None:
     parser.add_argument("--out-affected-mds", required=True)
     parser.add_argument("--rainfall-min-support-per-million", type=float, default=0.0)
     parser.add_argument("--rainfall-max-points-per-group", type=int, default=0)
+    parser.add_argument("--endpoint-density-bin-size", type=int, default=50)
+    parser.add_argument("--endpoint-density-smooth-bins", type=int, default=7)
     args = parser.parse_args()
 
     samples = pd.read_csv(args.samples, sep="\t")
@@ -1665,8 +1835,12 @@ def main() -> None:
         args.out_rainfall_right,
         args.out_rainfall_midpoint,
         args.out_breakpoint_pair_map,
+        args.out_endpoint_density,
+        args.out_endpoint_density_capped,
         min_support_per_million=args.rainfall_min_support_per_million,
         max_points_per_group=args.rainfall_max_points_per_group,
+        endpoint_density_bin_size=args.endpoint_density_bin_size,
+        endpoint_density_smooth_bins=args.endpoint_density_smooth_bins,
     )
     category_bar(affected_mtpm, samples, args.group_column, args.out_affected_support, "Affected Features: Normalized Abundance", support_label)
     category_bar(affected_raw, samples, args.group_column, args.out_affected_counts, "Affected Features: Raw Supporting Reads", "Supporting reads")

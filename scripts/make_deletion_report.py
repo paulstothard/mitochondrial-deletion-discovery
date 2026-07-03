@@ -1379,6 +1379,16 @@ def exact_deletion_display_table(
     min_support = int(settings["min_total_supporting_reads"])
     max_rows = int(settings["max_rows"])
     support = pd.to_numeric(sorted_clusters.get("total_supporting_reads", pd.Series(0, index=sorted_clusters.index)), errors="coerce").fillna(0)
+    total_rows = len(sorted_clusters)
+    total_support = int(support.sum())
+    if max_rows <= 0 or total_rows <= max_rows:
+        shown_support = int(support.sum())
+        return (
+            sorted_clusters.copy(),
+            f"The embedded report table shows all {total_rows} exact deletions"
+            f" ({shown_support:,} supporting reads) because the complete call set fits within the display cap."
+            " The complete unfiltered exact-deletions table is delivered as tables/exact_deletions.tsv.",
+        )
     include = support >= min_support
     target_rows = configured_target_mask(sorted_clusters)
     if settings["always_include_configured_targets"]:
@@ -1387,11 +1397,9 @@ def exact_deletion_display_table(
     filtered_before_cap = len(filtered)
     if max_rows > 0 and len(filtered) > max_rows:
         filtered = filtered.head(max_rows).copy()
-    total_rows = len(sorted_clusters)
     target_retained = int(configured_target_mask(filtered).sum())
     target_total = int(target_rows.sum())
     shown_support = int(pd.to_numeric(filtered.get("total_supporting_reads", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
-    total_support = int(support.sum())
     parts = [
         f"The embedded report table is filtered for readability: it shows exact deletions with at least {min_support} supporting reads",
     ]
@@ -1565,6 +1573,8 @@ def main() -> None:
         "deletion_rainfall_right_breakpoint.pdf": ("Deletion Rainfall: Right Breakpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same displayed exact deletions and support scale as the left-breakpoint rainfall plot, but places each point by canonical right breakpoint. Comparing left and right views helps identify fixed-endpoint patterns."),
         "deletion_rainfall_midpoint.pdf": ("Deletion Rainfall: Circular Midpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the circular midpoint of the deleted interval, so origin-spanning deletions are positioned by the midpoint along the deleted circular path rather than by a simple linear average."),
         "breakpoint_pair_support_map.pdf": ("Breakpoint-Pair Support Map", f"{rainfall_display_definition(config, burden)} Each point is one unique left/right breakpoint pair after applying the same display threshold and optional per-group cap as the rainfall plots. The x-axis is the left breakpoint; the y-axis is the right breakpoint, with origin-crossing right breakpoints shown above the horizontal genome-end line."),
+        "pooled_breakpoint_support_density.pdf": ("Pooled Breakpoint Support Density", f"{rainfall_display_definition(config, burden)} This summarizes where deletion endpoints accumulate along the mitochondrial genome after pooling left and right breakpoints. Stacked bars show binned support split by left versus right endpoint; the filled curve is circular-smoothed total endpoint support."),
+        "pooled_breakpoint_support_density_capped.pdf": ("Pooled Breakpoint Support Density: Capped Scale", f"{rainfall_display_definition(config, burden)} This is the same endpoint-density view with the y-axis capped so smaller secondary breakpoint hotspots remain visible when one region dominates."),
         "affected_feature_support.pdf": ("Affected Features: Normalized Abundance", f"This bar chart compares affected-feature categories after normalizing each sample {normalization_phrase(burden)}. Use this as the main abundance view when groups have different sequencing depth or mitochondrial read recovery."),
         "affected_feature_counts.pdf": ("Affected Features: Raw Supporting Reads", "This uses the same affected-feature categories as the normalized plot, but shows raw supporting read counts. It can look similar when sample depths are similar; disagreement between this and the normalized plot suggests depth or recovery differences."),
         "affected_feature_proportions.pdf": ("Affected Features: Within-Group Percent", "This uses the same affected-feature categories again, but rescales each group to 100 percent. It asks whether the mix of affected features changes, independent of total deletion burden."),
@@ -1589,6 +1599,8 @@ def main() -> None:
         "deletion_rainfall_right_breakpoint.pdf",
         "deletion_rainfall_midpoint.pdf",
         "breakpoint_pair_support_map.pdf",
+        "pooled_breakpoint_support_density.pdf",
+        "pooled_breakpoint_support_density_capped.pdf",
         "affected_feature_support.pdf",
         "affected_feature_proportions.pdf",
         "feature_impact_classes.pdf",
@@ -1637,11 +1649,15 @@ def main() -> None:
     .deletion_rainfall_left_breakpoint .plot-svg,
     .deletion_rainfall_right_breakpoint .plot-svg,
     .deletion_rainfall_midpoint .plot-svg,
-    .breakpoint_pair_support_map .plot-svg { max-width: 1180px; }
+    .breakpoint_pair_support_map .plot-svg,
+    .pooled_breakpoint_support_density .plot-svg,
+    .pooled_breakpoint_support_density_capped .plot-svg { max-width: 1180px; }
     .deletion_rainfall_left_breakpoint .plot-svg svg,
     .deletion_rainfall_right_breakpoint .plot-svg svg,
     .deletion_rainfall_midpoint .plot-svg svg,
-    .breakpoint_pair_support_map .plot-svg svg { max-height: 900px; }
+    .breakpoint_pair_support_map .plot-svg svg,
+    .pooled_breakpoint_support_density .plot-svg svg,
+    .pooled_breakpoint_support_density_capped .plot-svg svg { max-height: 900px; }
     .plot-missing, .empty, .notice { color: #8a4b16; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; padding: 12px; margin: 12px 0; }
     .table-wrap { background: white; border: 1px solid #d8dee8; border-radius: 6px; box-sizing: border-box; margin-top: 12px; max-height: 560px; max-width: 100%; overflow: auto; }
     .table-controls { align-items: center; background: #ffffff; border-bottom: 1px solid #d8dee8; display: flex; flex-wrap: wrap; gap: 10px; left: 0; margin: 0; padding: 8px; position: sticky; top: 0; z-index: 4; }

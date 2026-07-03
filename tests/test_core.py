@@ -20,6 +20,7 @@ from plot_deletion_results import (
     draw_feature_track_axis,
     location_features,
     mitochondrial_axis_bounds,
+    pooled_endpoint_density,
     rainfall_point_sizes,
     support_scale_limits,
     rainfall_support_limits,
@@ -31,6 +32,7 @@ from plot_deletion_results import (
 )
 from estimate_breakpoint_reference_support import circular_window, window_covered
 from make_deletion_report import (
+    exact_deletion_display_table,
     exact_deletion_support_read_links,
     sequence_remap_overlap_table,
     table_html,
@@ -330,6 +332,18 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(aliased["gene_name"].tolist(), ["Mt-tf", "Mt-nd1"])
         self.assertEqual(aliased["raw_gene_name"].tolist(), ["AY172581.13", "Mt-nd1"])
 
+    def test_exact_deletion_display_table_shows_small_call_sets(self):
+        clusters = pd.DataFrame(
+            [
+                {"exact_deletion_id": "mtDel_1", "total_supporting_reads": 41},
+                {"exact_deletion_id": "mtDel_2", "total_supporting_reads": 2},
+            ]
+        )
+        config = {"report": {"exact_deletion_table": {"min_total_supporting_reads": 50, "max_rows": 500}}}
+        display, note = exact_deletion_display_table(clusters, config)
+        self.assertEqual(len(display), 2)
+        self.assertIn("shows all 2 exact deletions", note)
+
     def test_rainfall_location_features_apply_configured_aliases(self):
         features = pd.DataFrame(
             [
@@ -398,6 +412,24 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(wide_size_ticks[0], 0.1)
         self.assertEqual(wide_size_ticks[-1], 1000.0)
         self.assertLess(len(wide_size_ticks), 7)
+
+    def test_pooled_endpoint_density_tracks_left_and_right_support(self):
+        calls = pd.DataFrame(
+            [
+                {"left_breakpoint": 10, "right_breakpoint": 120, "_plot_support": 2.0},
+                {"left_breakpoint": 15, "right_breakpoint": 180, "_plot_support": 3.0},
+                {"left_breakpoint": 220, "right_breakpoint": 20, "_plot_support": 5.0},
+            ]
+        )
+        density = pooled_endpoint_density(calls, genome_length=300, bin_size=100, smooth_bins=1)
+        first = density.loc[density["bin_index"] == 0].iloc[0]
+        second = density.loc[density["bin_index"] == 1].iloc[0]
+        third = density.loc[density["bin_index"] == 2].iloc[0]
+        self.assertEqual(first["left_support"], 5.0)
+        self.assertEqual(first["right_support"], 5.0)
+        self.assertEqual(second["right_support"], 5.0)
+        self.assertEqual(third["left_support"], 5.0)
+        self.assertEqual(first["summed_support"], 10.0)
 
     def test_rainfall_y_axis_min_tracks_deletion_cutoff(self):
         self.assertEqual(rainfall_y_axis_min(pd.Series([104, 500, 5000])), 100)

@@ -1,5 +1,5 @@
 project:
-  name: mito_rna_deletion_junctions
+  name: mitochondrial_deletion_discovery
   output_dir: results
   work_dir: resources
 workflow:
@@ -129,6 +129,8 @@ plots:
   large_deletion_min_size: 1000
   rainfall_min_support_per_million: 0.0
   rainfall_max_points_per_group: 300
+  endpoint_density_bin_size: 50
+  endpoint_density_smooth_bins: 7
 report:
   html: true
   exact_deletion_table:

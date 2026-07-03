@@ -1,0 +1,2 @@
+sample	dataset	species	condition	layout	fastq_1	fastq_2	tissue	sample_name
+HS_07152501_S102_MT	human_bulkseq_matched_nanopore	human	matched_bulkseq	paired	bulkseq_matched_nanopore/fastq/HS_07152501_S102_MT.R1.fastq.gz	bulkseq_matched_nanopore/fastq/HS_07152501_S102_MT.R2.fastq.gz	unknown	HS_07152501_S102_MT
