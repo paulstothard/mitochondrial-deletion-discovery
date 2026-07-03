@@ -18,6 +18,7 @@ from scipy.spatial.distance import pdist, squareform
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
 
+from annotate_junctions import apply_feature_aliases
 from circular_deletions import circular_distance
 from common import ensure_parent
 
@@ -98,7 +99,7 @@ def value_columns(matrix: pd.DataFrame, samples: pd.DataFrame | None = None) -> 
     for col in matrix.columns:
         if col in TECHNICAL_COLUMNS or col in metadata:
             continue
-        if col.endswith(("_denominator", "_read_count", "_reads_examined")):
+        if col.endswith(("_denominator", "_read_count", "_reads_examined", "_reads", "_read_total")):
             continue
         values = pd.to_numeric(matrix[col], errors="coerce")
         if values.notna().any():
@@ -262,6 +263,22 @@ def support_legend_values(support_min: float, support_max: float) -> list[float]
         return values
     keep_indexes = np.linspace(0, len(values) - 1, 8).round().astype(int)
     return [values[index] for index in sorted(set(keep_indexes))]
+
+
+def support_size_legend_values(support_min: float, support_max: float) -> list[float]:
+    if support_max <= 0:
+        return []
+    if support_min <= 0 or support_min >= support_max:
+        return [nice_support_value(support_max)]
+    targets = np.geomspace(support_min, support_max, num=6)
+    values = [nice_support_value(float(value)) for value in targets]
+    values[0] = support_min
+    values[-1] = support_max
+    deduped = []
+    for value in values:
+        if support_min <= value <= support_max and value not in deduped:
+            deduped.append(float(value))
+    return deduped
 
 
 def support_tick_label(value: float) -> str:
@@ -872,6 +889,7 @@ def location_features(features: pd.DataFrame, config: dict | None = None) -> pd.
             keep = feature_type.isin({"gene", "region"})
             if keep.any():
                 work = work[keep].copy()
+        work = apply_feature_aliases(work, config or {})
         work["start"] = pd.to_numeric(work["start"], errors="coerce")
         work["end"] = pd.to_numeric(work["end"], errors="coerce")
         work["name"] = work.apply(lambda row: location_feature_display_name(feature_name(row)), axis=1)
@@ -1094,7 +1112,7 @@ def add_location_legend(
     cb.ax.xaxis.set_minor_locator(ticker.NullLocator())
     cb.ax.tick_params(axis="x", length=2, pad=1)
     size_ax = legend_ax.inset_axes([0.13, 0.38, 0.80, 0.18])
-    draw_support_size_scale(size_ax, legend_values, support_min, support_max, scatter.norm, scatter.cmap, support_label)
+    draw_support_size_scale(size_ax, support_size_legend_values(support_min, support_max), support_min, support_max, scatter.norm, scatter.cmap, support_label)
     if show_origin_outline:
         legend_ax.scatter([0.30], [0.15], s=120, facecolors="none", edgecolors=ORIGIN_OUTLINE_COLOR, linewidths=1.5, transform=legend_ax.transAxes, clip_on=False)
         legend_ax.text(0.44, 0.15, origin_label, va="center", fontsize=8, transform=legend_ax.transAxes)

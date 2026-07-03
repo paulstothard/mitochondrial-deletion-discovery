@@ -915,8 +915,8 @@ rule plot_results:
         affected_mds=f"{OUTDIR}/plots/affected_feature_bray_curtis_mds.pdf",
     params:
         group=CFG["dataset"].get("primary_group_column", ""),
-        rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 1.0),
-        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 0),
+        rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
+        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 300),
         mt_length=MT_LENGTH,
     conda:
         "envs/mitochondrial-deletions.yaml"

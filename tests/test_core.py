@@ -18,6 +18,7 @@ from prepare_reads import normalized_layout
 from plot_deletion_results import (
     apply_cluster_coordinates,
     draw_feature_track_axis,
+    location_features,
     mitochondrial_axis_bounds,
     rainfall_point_sizes,
     support_scale_limits,
@@ -25,6 +26,7 @@ from plot_deletion_results import (
     rainfall_y_axis_min,
     prepare_location_plot_data,
     support_legend_values,
+    support_size_legend_values,
     value_columns,
 )
 from estimate_breakpoint_reference_support import circular_window, window_covered
@@ -93,6 +95,7 @@ class CoreTests(unittest.TestCase):
         )
         samples = pd.DataFrame({"sample": ["s1"], "condition": ["treated"]})
         self.assertEqual(value_columns(matrix, samples), ["MT-CO1+MT-CYB"])
+        self.assertEqual(value_columns(matrix, None), ["MT-CO1+MT-CYB"])
 
     def test_normalize_pos_wraps_padded_reference(self):
         self.assertEqual(normalize_pos(1001, 16313, 1000), 1)
@@ -327,6 +330,28 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(aliased["gene_name"].tolist(), ["Mt-tf", "Mt-nd1"])
         self.assertEqual(aliased["raw_gene_name"].tolist(), ["AY172581.13", "Mt-nd1"])
 
+    def test_rainfall_location_features_apply_configured_aliases(self):
+        features = pd.DataFrame(
+            [
+                {"gene_name": "AY172581.9", "gene_id": "ENSRNOG1", "feature_type": "gene", "start": 68, "end": 1025},
+                {"gene_name": "AY172581.3", "gene_id": "ENSRNOG2", "feature_type": "gene", "start": 1026, "end": 1093},
+                {"gene_name": "Mt-nd1", "gene_id": "ENSRNOG3", "feature_type": "gene", "start": 2740, "end": 3694},
+            ]
+        )
+        config = {
+            "annotations": {
+                "feature_aliases": [
+                    {"raw_name": "AY172581.9", "display_name": "Mt-rnr1"},
+                    {"raw_name": "AY172581.3", "display_name": "Mt-tv"},
+                ]
+            }
+        }
+        plotted = location_features(features, config)
+        classes = dict(zip(plotted["name"], plotted["class"]))
+        self.assertEqual(classes["Mt-rnr1"], "rRNA")
+        self.assertEqual(classes["Mt-tv"], "tRNA")
+        self.assertEqual(classes["Mt-nd1"], "protein_coding")
+
     def test_rainfall_feature_track_uses_full_mt_axis_and_clipped_labels(self):
         import matplotlib.pyplot as plt
         import pandas as pd
@@ -369,6 +394,10 @@ class CoreTests(unittest.TestCase):
 
         wide_ticks = support_legend_values(*support_scale_limits(0.16, 821))
         self.assertEqual(wide_ticks, [0.1, 1.0, 10.0, 100.0, 1000.0])
+        wide_size_ticks = support_size_legend_values(*support_scale_limits(0.16, 821))
+        self.assertEqual(wide_size_ticks[0], 0.1)
+        self.assertEqual(wide_size_ticks[-1], 1000.0)
+        self.assertLess(len(wide_size_ticks), 7)
 
     def test_rainfall_y_axis_min_tracks_deletion_cutoff(self):
         self.assertEqual(rainfall_y_axis_min(pd.Series([104, 500, 5000])), 100)
