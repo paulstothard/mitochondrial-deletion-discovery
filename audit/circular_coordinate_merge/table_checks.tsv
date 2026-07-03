@@ -1,0 +1,4 @@
+negative_sizes	origin_spanning_rows	rows	size_mismatches	table	wrap_rule_mismatches
+0	650	9250	0	raw rotated deletion calls	0
+0	61	727	65	merged clusters	0
+0	145	3040	0	read-level merged evidence	0

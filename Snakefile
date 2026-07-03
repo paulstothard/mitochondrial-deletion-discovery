@@ -784,6 +784,7 @@ rule cluster_junctions:
         "envs/mitochondrial-deletions.yaml"
     shell:
         "python scripts/consolidate_deletions.py --slop {params.slop} --min-support {params.min_support} "
+        "--mt-length {params.mt_length} "
         "--all-reads {output.all_reads} --clusters {output.clusters} --id-map {output.id_map} {input}"
 
 

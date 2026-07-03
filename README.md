@@ -222,7 +222,7 @@ Main plots include:
 
 Plot group order and colors are chosen once per report and reused across plots. For two-factor designs with `age` and `treatment`, groups are ordered by age and then treatment, with control-like groups first within each age. Control-like groups use subdued colors and treatment groups use red-family colors when possible.
 
-The deletion rainfall plots and breakpoint-pair support map are visual displays, not separate calling steps. They all use the same display rule. By default they draw exact deletions with at least `plots.rainfall_min_support_per_million: 1.0` normalized supporting reads per million usable reads in the plotted group. `plots.rainfall_max_points_per_group: 0` means there is no rank-based top-N cap. Raising the normalized threshold can make very large reports easier to inspect without making datasets incomparable through a hidden top-N rule.
+The deletion rainfall plots and breakpoint-pair support map are visual displays, not separate calling steps. They all use the same display rule. By default `plots.rainfall_min_support_per_million: 0.0`, so low-abundance datasets are not hidden by a normalized-support cutoff. `plots.rainfall_max_points_per_group: 300` limits each group panel to the highest-support displayed exact deletions so dense datasets remain readable. These settings affect only the plots; the exact-deletion tables, matrices, comparisons, and read-list links retain the full analyzed call set subject to their own table-display filters.
 
 Large result tables in the HTML report are searchable, sortable, and paged. Small tables are shown directly without search controls.
 

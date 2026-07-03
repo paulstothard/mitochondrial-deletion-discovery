@@ -1,0 +1,17 @@
+back_to_standard	rotated_position	rotation_name	rotation_start	roundtrip_pass	standard_position
+1	1	normal	1	True	1
+2	2	normal	1	True	2
+8283	8283	normal	1	True	8283
+8284	8284	normal	1	True	8284
+8285	8285	normal	1	True	8285
+8286	8286	normal	1	True	8286
+16568	16568	normal	1	True	16568
+16569	16569	normal	1	True	16569
+1	8286	half	8285	True	1
+2	8287	half	8285	True	2
+8283	16568	half	8285	True	8283
+8284	16569	half	8285	True	8284
+8285	1	half	8285	True	8285
+8286	2	half	8285	True	8286
+16568	8284	half	8285	True	16568
+16569	8285	half	8285	True	16569

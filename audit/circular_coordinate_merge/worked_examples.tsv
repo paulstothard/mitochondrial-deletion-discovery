@@ -1,0 +1,6 @@
+canonical_orientation	deleted_interval_1based_closed	deleted_size_recomputed_from_standard_breakpoints	deleted_size_reported	example	left_breakpoint_1based_standard	raw_left_breakpoint_1based_rotated	raw_left_converted_to_standard	raw_right_breakpoint_1based_rotated	raw_right_converted_to_standard	read_id	right_breakpoint_1based_standard	rotation_name	rotation_start	sample	size_matches	wraps_origin
+reported	210-2127	1918	1918	normal deletion from standard alignment	209	209	209	2128	2128	LH00306:140:22HH3GLT3:6:1201:45631:26075	2128	normal	1	HDFn	True	no
+reversed_to_shorter_interval	8247-8394	148	148	normal deletion from offset alignment	8246	111	8395	16531	8246	LH00306:140:22HH3GLT3:6:2247:46815:22902	8395	half	8285	HDFn	True	no
+reversed_to_shorter_interval	9621-16569;1-714	7663	7663	origin-spanning deletion from offset alignment	9620	9000	715	1336	9620	LH00306:140:22HH3GLT3:6:2218:42081:25626	715	half	8285	HDFn	True	yes
+reported	8285-11372	3088	3088	deletion near offset-reference boundary	8284	16569	8284	3089	11373	LH00306:140:22HH3GLT3:6:2104:4726:16654	11373	half	8285	HDFn	True	no
+reversed_to_shorter_interval	11007-11140	134	134	merged call detected in both alignments	11006	2857	11141	2722	11006	LH00306:140:22HH3GLT3:6:1106:25095:27373	11141	half	8285	HDFn	True	no

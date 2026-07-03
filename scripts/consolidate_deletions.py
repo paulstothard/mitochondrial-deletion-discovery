@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from statistics import median
 
-from circular_deletions import deletion_id
+from circular_deletions import circular_distance, deletion_id
 from common import read_tsv, write_tsv
 
 
@@ -16,7 +16,7 @@ def close(row: dict, cluster: dict, slop: int) -> bool:
     )
 
 
-def cluster_rows(rows: list[dict], slop: int, min_support: int) -> tuple[list[dict], list[dict], list[dict]]:
+def cluster_rows(rows: list[dict], slop: int, min_support: int, mt_length: int | None = None) -> tuple[list[dict], list[dict], list[dict]]:
     clusters: list[dict] = []
     for row in rows:
         cluster = next((item for item in clusters if close(row, item, slop)), None)
@@ -49,12 +49,21 @@ def cluster_rows(rows: list[dict], slop: int, min_support: int) -> tuple[list[di
             continue
         left = int(round(median(int(row["left_breakpoint"]) for row in cluster["rows"])))
         right = int(round(median(int(row["right_breakpoint"]) for row in cluster["rows"])))
-        size = int(round(median(int(row["deleted_size"]) for row in cluster["rows"])))
+        size = circular_distance(left, right, int(mt_length)) if mt_length else int(round(median(int(row["deleted_size"]) for row in cluster["rows"])))
         exact_id = deletion_id(left, right, size)
+        wraps_origin = "yes" if right <= left else "no"
         for row in cluster["rows"]:
             out = dict(row)
+            out["read_left_breakpoint"] = row.get("left_breakpoint", "")
+            out["read_right_breakpoint"] = row.get("right_breakpoint", "")
+            out["read_deleted_size"] = row.get("deleted_size", "")
             out["exact_deletion_id"] = exact_id
             out["junction_id"] = exact_id
+            out["deletion_id"] = exact_id
+            out["left_breakpoint"] = left
+            out["right_breakpoint"] = right
+            out["deleted_size"] = size
+            out["wraps_origin"] = wraps_origin
             all_rows.append(out)
             id_rows.append(
                 {
@@ -76,7 +85,7 @@ def cluster_rows(rows: list[dict], slop: int, min_support: int) -> tuple[list[di
                 "left_breakpoint": left,
                 "right_breakpoint": right,
                 "deleted_size": size,
-                "wraps_origin": "yes" if right <= left else "no",
+                "wraps_origin": wraps_origin,
                 "total_supporting_reads": len(cluster["support_keys"]),
                 "samples_with_signal": len(cluster["samples"]),
                 "supporting_samples": ",".join(sorted(cluster["samples"])),
@@ -92,6 +101,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--slop", type=int, required=True)
     parser.add_argument("--min-support", type=int, required=True)
+    parser.add_argument("--mt-length", type=int, required=True)
     parser.add_argument("--all-reads", required=True)
     parser.add_argument("--clusters", required=True)
     parser.add_argument("--id-map", required=True)
@@ -111,7 +121,7 @@ def main() -> None:
             row.get("rotation_name", ""),
         )
     )
-    all_rows, clusters, id_rows = cluster_rows(rows, args.slop, args.min_support)
+    all_rows, clusters, id_rows = cluster_rows(rows, args.slop, args.min_support, args.mt_length)
     read_fields = [
         "exact_deletion_id",
         "junction_id",
@@ -122,6 +132,9 @@ def main() -> None:
         "left_breakpoint",
         "right_breakpoint",
         "deleted_size",
+        "read_left_breakpoint",
+        "read_right_breakpoint",
+        "read_deleted_size",
         "wraps_origin",
         "deleted_interval",
         "reported_left_breakpoint",

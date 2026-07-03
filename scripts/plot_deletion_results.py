@@ -18,6 +18,7 @@ from scipy.spatial.distance import pdist, squareform
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
 
+from circular_deletions import circular_distance
 from common import ensure_parent
 
 
@@ -790,6 +791,43 @@ def size_distribution(reads: pd.DataFrame, samples: pd.DataFrame, group_col: str
 ORIGIN_OUTLINE_COLOR = "#00c8ff"
 
 
+def apply_cluster_coordinates(reads: pd.DataFrame, clusters: pd.DataFrame | None, mt_length: int = 0) -> pd.DataFrame:
+    """Replace read-level deletion coordinates with merged cluster representatives."""
+    if reads.empty:
+        return reads.copy()
+    df = reads.copy()
+    if clusters is not None and not clusters.empty:
+        id_col = "junction_id" if "junction_id" in df.columns and "junction_id" in clusters.columns else ""
+        if not id_col and "exact_deletion_id" in df.columns and "exact_deletion_id" in clusters.columns:
+            id_col = "exact_deletion_id"
+        required = {"left_breakpoint", "right_breakpoint", "deleted_size"}
+        if id_col and required.issubset(clusters.columns):
+            cluster_coords = clusters[[id_col, "left_breakpoint", "right_breakpoint", "deleted_size"]].drop_duplicates(id_col).copy()
+            cluster_coords = cluster_coords.rename(
+                columns={
+                    "left_breakpoint": "_cluster_left_breakpoint",
+                    "right_breakpoint": "_cluster_right_breakpoint",
+                    "deleted_size": "_cluster_deleted_size",
+                }
+            )
+            df = df.merge(cluster_coords, on=id_col, how="left")
+            for col in ["left_breakpoint", "right_breakpoint", "deleted_size"]:
+                cluster_col = f"_cluster_{col}"
+                if cluster_col in df.columns:
+                    df[col] = df[cluster_col].where(df[cluster_col].notna(), df[col])
+            df = df.drop(columns=[col for col in df.columns if col.startswith("_cluster_")])
+    for col in ["left_breakpoint", "right_breakpoint", "deleted_size"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    if mt_length and {"left_breakpoint", "right_breakpoint"}.issubset(df.columns):
+        valid = df["left_breakpoint"].notna() & df["right_breakpoint"].notna()
+        df.loc[valid, "deleted_size"] = [
+            circular_distance(int(left), int(right), int(mt_length))
+            for left, right in zip(df.loc[valid, "left_breakpoint"], df.loc[valid, "right_breakpoint"])
+        ]
+    return df
+
+
 def location_support_colormap() -> colors.LinearSegmentedColormap:
     return colors.LinearSegmentedColormap.from_list(
         "support_dark_to_orange",
@@ -1068,12 +1106,14 @@ def prepare_location_plot_data(
     reads: pd.DataFrame,
     samples: pd.DataFrame,
     group_col: str,
+    clusters: pd.DataFrame | None = None,
+    mt_length: int = 0,
     min_support_per_million: float = 0.0,
     max_points_per_group: int = 0,
 ) -> tuple[pd.DataFrame, list[str], str]:
     if reads.empty:
         return pd.DataFrame(), [], "Deletion-supporting reads"
-    df = reads.copy()
+    df = apply_cluster_coordinates(reads, clusters, mt_length=mt_length)
     df["left_breakpoint"] = pd.to_numeric(df["left_breakpoint"], errors="coerce")
     df["right_breakpoint"] = pd.to_numeric(df["right_breakpoint"], errors="coerce")
     df["deleted_size"] = pd.to_numeric(df["deleted_size"], errors="coerce")
@@ -1309,6 +1349,7 @@ def breakpoint_pair_support_map(display_grouped: pd.DataFrame, groups: list[str]
 def location_plots(
     reads: pd.DataFrame,
     samples: pd.DataFrame,
+    clusters: pd.DataFrame,
     features: pd.DataFrame,
     config: dict,
     mt_length: int,
@@ -1324,6 +1365,8 @@ def location_plots(
         reads,
         samples,
         group_col,
+        clusters=clusters,
+        mt_length=mt_length,
         min_support_per_million=min_support_per_million,
         max_points_per_group=max_points_per_group,
     )
@@ -1585,15 +1628,17 @@ def main() -> None:
     burden_plot(burden, args.group_column, args.out_unique_count, "unique_exact_deletions", "Distinct Exact Deletions", "Distinct exact deletion calls")
     factorial_interaction_plot(burden, args.out_burden_factorial, "deletion_support_per_million_mt_reads", "Deletion Burden: Age By Treatment", burden_label)
     factorial_interaction_plot(burden, args.out_unique_factorial, "unique_exact_deletions", "Distinct Exact Deletions: Age By Treatment", "Distinct exact deletion calls")
-    size_distribution(reads, burden, args.group_column, args.out_size_unweighted, "Deletion Size Distribution, Unweighted", weighted=False)
-    size_distribution(reads, burden, args.group_column, args.out_size_weighted, "Deletion Size Distribution, Support-Weighted", weighted=True)
-    size_distribution(reads, burden, args.group_column, args.out_size_weighted_log, "Deletion Size Distribution, Support-Weighted Log Scale", weighted=True, log_y=True)
-    size_distribution(reads, burden, args.group_column, args.out_size_small, "Small Deletion Size Distribution (<1 kb)", weighted=True, size_max=999)
-    size_distribution(reads, burden, args.group_column, args.out_size_medium, "Medium Deletion Size Distribution (1-5 kb)", weighted=True, size_min=1000, size_max=4999)
-    size_distribution(reads, burden, args.group_column, args.out_size_large, "Large Deletion Size Distribution (>=5 kb)", weighted=True, size_min=5000)
+    cluster_coordinate_reads = apply_cluster_coordinates(reads, clusters, mt_length=args.mt_length)
+    size_distribution(cluster_coordinate_reads, burden, args.group_column, args.out_size_unweighted, "Deletion Size Distribution, Unweighted", weighted=False)
+    size_distribution(cluster_coordinate_reads, burden, args.group_column, args.out_size_weighted, "Deletion Size Distribution, Support-Weighted", weighted=True)
+    size_distribution(cluster_coordinate_reads, burden, args.group_column, args.out_size_weighted_log, "Deletion Size Distribution, Support-Weighted Log Scale", weighted=True, log_y=True)
+    size_distribution(cluster_coordinate_reads, burden, args.group_column, args.out_size_small, "Small Deletion Size Distribution (<1 kb)", weighted=True, size_max=999)
+    size_distribution(cluster_coordinate_reads, burden, args.group_column, args.out_size_medium, "Medium Deletion Size Distribution (1-5 kb)", weighted=True, size_min=1000, size_max=4999)
+    size_distribution(cluster_coordinate_reads, burden, args.group_column, args.out_size_large, "Large Deletion Size Distribution (>=5 kb)", weighted=True, size_min=5000)
     location_plots(
         reads,
         burden,
+        clusters,
         features,
         config,
         args.mt_length,

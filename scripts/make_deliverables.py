@@ -144,6 +144,10 @@ def main() -> None:
     stale_star = out / "star_full_genome_split_read"
     if stale_star.exists():
         shutil.rmtree(stale_star)
+    for subdir in ("plots", "tables", "matrices", "config"):
+        path = out / subdir
+        if path.exists():
+            shutil.rmtree(path)
     copied: list[str] = []
 
     copy_if_exists(root / ".report" / "index.html", out / "index.html", copied)

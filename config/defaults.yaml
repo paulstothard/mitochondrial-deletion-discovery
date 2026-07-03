@@ -127,8 +127,8 @@ junctions:
 plots:
   enabled: true
   large_deletion_min_size: 1000
-  rainfall_min_support_per_million: 1.0
-  rainfall_max_points_per_group: 0
+  rainfall_min_support_per_million: 0.0
+  rainfall_max_points_per_group: 300
 report:
   html: true
   exact_deletion_table:

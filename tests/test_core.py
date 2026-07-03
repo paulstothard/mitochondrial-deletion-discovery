@@ -16,12 +16,14 @@ from make_rotated_mt_reference import rotate_sequence
 from parse_split_alignments import aligned_bases_from_cigar, deletion_size, normalize_pos, parse_star_junction_line
 from prepare_reads import normalized_layout
 from plot_deletion_results import (
+    apply_cluster_coordinates,
     draw_feature_track_axis,
     mitochondrial_axis_bounds,
     rainfall_point_sizes,
     support_scale_limits,
     rainfall_support_limits,
     rainfall_y_axis_min,
+    prepare_location_plot_data,
     support_legend_values,
     value_columns,
 )
@@ -193,11 +195,68 @@ class CoreTests(unittest.TestCase):
                 "rotation_name": "half",
             },
         ]
-        all_rows, clusters, id_rows = cluster_rows(rows, slop=10, min_support=1)
+        all_rows, clusters, id_rows = cluster_rows(rows, slop=10, min_support=1, mt_length=16569)
         self.assertEqual(len(clusters), 1)
         self.assertEqual(clusters[0]["total_supporting_reads"], 1)
         self.assertEqual(len(all_rows), 1)
         self.assertEqual(len(id_rows), 1)
+
+    def test_consolidate_deletions_recomputes_size_from_representative_breakpoints(self):
+        rows = [
+            {
+                "sample": "s1",
+                "species": "human",
+                "read_id": "readA",
+                "left_breakpoint": "100",
+                "right_breakpoint": "201",
+                "deleted_size": "100",
+                "rotation_name": "normal",
+            },
+            {
+                "sample": "s1",
+                "species": "human",
+                "read_id": "readB",
+                "left_breakpoint": "101",
+                "right_breakpoint": "202",
+                "deleted_size": "100",
+                "rotation_name": "half",
+            },
+        ]
+        _, clusters, _ = cluster_rows(rows, slop=2, min_support=1, mt_length=1000)
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0]["left_breakpoint"], 100)
+        self.assertEqual(clusters[0]["right_breakpoint"], 202)
+        self.assertEqual(clusters[0]["deleted_size"], 101)
+
+    def test_location_plot_data_uses_cluster_representative_coordinates(self):
+        reads = pd.DataFrame(
+            [
+                {"sample": "s1", "read_id": "readA", "junction_id": "j1", "left_breakpoint": 100, "right_breakpoint": 200, "deleted_size": 99},
+                {"sample": "s1", "read_id": "readB", "junction_id": "j1", "left_breakpoint": 110, "right_breakpoint": 210, "deleted_size": 99},
+            ]
+        )
+        samples = pd.DataFrame({"sample": ["s1"], "condition": ["treated"], "normalization_reads": [1000]})
+        clusters = pd.DataFrame({"junction_id": ["j1"], "left_breakpoint": [105], "right_breakpoint": [205], "deleted_size": [99]})
+        grouped, groups, _ = prepare_location_plot_data(reads, samples, "condition", clusters=clusters, mt_length=1000)
+        self.assertEqual(groups, ["treated"])
+        self.assertEqual(len(grouped), 1)
+        self.assertEqual(int(grouped.loc[0, "left_breakpoint"]), 105)
+        self.assertEqual(int(grouped.loc[0, "right_breakpoint"]), 205)
+        self.assertEqual(int(grouped.loc[0, "deleted_size"]), 99)
+        self.assertEqual(int(grouped.loc[0, "supporting_reads"]), 2)
+
+    def test_cluster_coordinate_adapter_recomputes_size_from_representative_breakpoints(self):
+        reads = pd.DataFrame(
+            [
+                {"sample": "s1", "read_id": "readA", "junction_id": "j1", "left_breakpoint": 100, "right_breakpoint": 200, "deleted_size": 99},
+                {"sample": "s1", "read_id": "readB", "junction_id": "j1", "left_breakpoint": 110, "right_breakpoint": 210, "deleted_size": 99},
+            ]
+        )
+        clusters = pd.DataFrame({"junction_id": ["j1"], "left_breakpoint": [105], "right_breakpoint": [207], "deleted_size": [999]})
+        corrected = apply_cluster_coordinates(reads, clusters, mt_length=1000)
+        self.assertEqual(corrected["left_breakpoint"].tolist(), [105, 105])
+        self.assertEqual(corrected["right_breakpoint"].tolist(), [207, 207])
+        self.assertEqual(corrected["deleted_size"].tolist(), [101, 101])
 
     def test_wrapping_deletion_annotates_features_on_both_sides_of_origin(self):
         import pandas as pd
