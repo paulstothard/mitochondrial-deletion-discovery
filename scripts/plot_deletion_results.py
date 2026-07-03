@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import yaml
 from matplotlib import colors, ticker
 from matplotlib.patches import Rectangle
 from matplotlib.backends.backend_pdf import PdfPages
@@ -786,25 +787,303 @@ def size_distribution(reads: pd.DataFrame, samples: pd.DataFrame, group_col: str
     save(fig, path)
 
 
-def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame, group_col: str, path: str) -> None:
+ORIGIN_OUTLINE_COLOR = "#00c8ff"
+
+
+def location_support_colormap() -> colors.LinearSegmentedColormap:
+    return colors.LinearSegmentedColormap.from_list(
+        "support_dark_to_orange",
+        ["#171126", "#3d1a6e", "#7c238e", "#bd3b78", "#ee654f", "#f6a15a"],
+        N=256,
+    )
+
+
+def location_feature_display_name(name: str) -> str:
+    if name == "mitochondrial_control_region":
+        return "D-loop/control"
+    return name.replace("_", " ")
+
+
+def location_feature_class(row: pd.Series) -> str:
+    kind = feature_kind(row)
+    if kind == "protein-coding":
+        return "protein_coding"
+    if kind in {"rRNA", "tRNA"}:
+        return kind
+    feature_type = str(row.get("feature_type", "")).lower()
+    name = feature_name(row)
+    if feature_type == "region" or name in {"mitochondrial_control_region", "D-loop/control"}:
+        return "region"
+    return "other"
+
+
+def read_yaml_safe(path: str) -> dict:
+    if not path or not Path(path).exists():
+        return {}
+    with Path(path).open(encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def location_features(features: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
+    if features.empty or not {"start", "end"}.issubset(features.columns):
+        work = pd.DataFrame(columns=["start", "end", "name", "class"])
+    else:
+        work = features.copy()
+        if "feature_type" in work.columns:
+            feature_type = work["feature_type"].fillna("").astype(str).str.lower()
+            keep = feature_type.isin({"gene", "region"})
+            if keep.any():
+                work = work[keep].copy()
+        work["start"] = pd.to_numeric(work["start"], errors="coerce")
+        work["end"] = pd.to_numeric(work["end"], errors="coerce")
+        work["name"] = work.apply(lambda row: location_feature_display_name(feature_name(row)), axis=1)
+        work["class"] = work.apply(location_feature_class, axis=1)
+        work = work.dropna(subset=["start", "end"])
+        work = work[work["end"] > work["start"]]
+        work = work[["start", "end", "name", "class"]]
+    region_rows = []
+    for region in ((config or {}).get("analysis", {}) or {}).get("mt_regions", []) or []:
+        try:
+            region_rows.append(
+                {
+                    "start": int(region["start"]),
+                    "end": int(region["end"]),
+                    "name": location_feature_display_name(str(region["name"])),
+                    "class": "region",
+                }
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    if region_rows:
+        work = pd.concat([work, pd.DataFrame(region_rows)], ignore_index=True)
+    return work.drop_duplicates().sort_values(["start", "end", "name"]).reset_index(drop=True)
+
+
+def location_genome_length(mt_length: int, features: pd.DataFrame, df: pd.DataFrame | None = None) -> int:
+    if mt_length > 0:
+        return int(mt_length)
+    values = []
+    if not features.empty and "end" in features.columns:
+        values.extend(pd.to_numeric(features["end"], errors="coerce").dropna().tolist())
+    if df is not None and not df.empty:
+        for col in ["left_breakpoint", "right_breakpoint"]:
+            if col in df.columns:
+                values.extend(pd.to_numeric(df[col], errors="coerce").dropna().tolist())
+    return int(max(values)) if values else 1
+
+
+def fitted_location_label_fontsize(ax: plt.Axes, label: str, visible_width_bp: float, x_span_bp: float, max_size: float, min_size: float) -> float | None:
+    if visible_width_bp <= 0 or x_span_bp <= 0:
+        return None
+    fig_width_pt = ax.figure.get_size_inches()[0] * 72
+    axis_width_pt = max(240.0, ax.get_position().width * fig_width_pt)
+    available_pt = visible_width_bp / x_span_bp * axis_width_pt
+    estimated_size = available_pt / max(1.0, len(label) * 0.60)
+    fontsize = min(max_size, estimated_size)
+    if fontsize < min_size:
+        return None
+    return max(min_size, fontsize)
+
+
+def draw_location_feature_track(ax: plt.Axes, features: pd.DataFrame, genome_length: int, x_min: float = 1.0, x_max: float | None = None) -> None:
+    if x_max is None:
+        x_max = float(genome_length)
+    rows = {"protein_coding": 3.25, "rRNA": 2.1, "tRNA": 1.0, "region": -0.15, "other": -1.0}
+    labels = {"protein_coding": "protein-coding", "rRNA": "rRNA", "tRNA": "tRNA", "region": "regions"}
+    feature_colors = {
+        "protein_coding": "#4f7edb",
+        "rRNA": "#9d6ad6",
+        "tRNA": "#65bfa5",
+        "region": "#f0b84f",
+        "other": "#9aa3af",
+    }
+    x_span = max(1.0, float(x_max) - float(x_min))
+    dloop_segments: list[tuple[float, float]] = []
+    labeled_names: set[str] = set()
+    for _, feat in features.iterrows():
+        cls = feat["class"] if feat["class"] in rows else "other"
+        y = rows[cls]
+        start = float(feat["start"])
+        end = float(feat["end"])
+        if end <= x_min or start >= x_max:
+            continue
+        visible_start = max(start, float(x_min))
+        visible_end = min(end, float(x_max))
+        visible_width = max(0.0, visible_end - visible_start)
+        ax.add_patch(
+            Rectangle(
+                (start, y - 0.28),
+                max(1.0, end - start + 1),
+                0.56,
+                color=feature_colors.get(cls, feature_colors["other"]),
+                alpha=0.9,
+            )
+        )
+        name = str(feat["name"])
+        if cls == "region" and name == "D-loop/control" and visible_width > 20:
+            dloop_segments.append((visible_start, visible_end))
+            continue
+        if cls not in {"protein_coding", "rRNA", "region"} or visible_width <= 45 or name in labeled_names:
+            continue
+        text_x = (visible_start + visible_end) / 2
+        ha = "center"
+        label_width = visible_width
+        max_font = 6.2 if cls == "protein_coding" else 7.0
+        min_font = 3.4 if cls == "protein_coding" else 4.0
+        if cls == "region":
+            label_width = max(visible_width, 380.0)
+            if visible_start <= x_min + 75:
+                text_x = x_min + 45
+                ha = "left"
+            elif visible_end >= x_max - 75:
+                text_x = x_max - 45
+                ha = "right"
+        fontsize = fitted_location_label_fontsize(ax, name, label_width, x_span, max_font, min_font)
+        if fontsize is None:
+            continue
+        ax.text(text_x, y, name, ha=ha, va="center", fontsize=fontsize, color="#111827", clip_on=True)
+        labeled_names.add(name)
+    for start, end in dloop_segments:
+        if end <= start:
+            continue
+        if start <= x_min + 100:
+            text_x = x_min + 45
+            ha = "left"
+        elif end >= x_max - 100:
+            text_x = x_max - 45
+            ha = "right"
+        else:
+            text_x = (start + end) / 2
+            ha = "center"
+        fontsize = fitted_location_label_fontsize(ax, "D-loop/control", max(end - start, 1300.0), x_span, 7.0, 3.6) or 3.6
+        ax.text(text_x, rows["region"], "D-loop/control", ha=ha, va="center", fontsize=fontsize, color="#111827", clip_on=True)
+    ax.set_ylim(-1.0, 4.18)
+    ax.set_yticks([rows[key] for key in ["protein_coding", "rRNA", "tRNA", "region"]])
+    ax.set_yticklabels([labels[key] for key in ["protein_coding", "rRNA", "tRNA", "region"]], fontsize=8)
+    ax.set_xlim(x_min, x_max)
+    ax.grid(False)
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+
+
+def circular_deleted_interval_midpoint(df: pd.DataFrame, genome_length: int) -> pd.Series:
+    left = pd.to_numeric(df["left_breakpoint"], errors="coerce")
+    right = pd.to_numeric(df["right_breakpoint"], errors="coerce")
+    crosses = right < left
+    adjusted_right = right.where(~crosses, right + genome_length)
+    midpoint = (left + adjusted_right) / 2.0
+    return ((midpoint - 1) % genome_length) + 1
+
+
+def origin_outline_linewidths(marker_sizes: np.ndarray) -> tuple[float, float]:
+    if len(marker_sizes) == 0:
+        return 0.45, 0.18
+    size = float(np.nanmedian(marker_sizes))
+    if size < 6:
+        return 0.42, 0.18
+    if size < 18:
+        return 0.55, 0.24
+    if size < 45:
+        return 0.75, 0.32
+    if size < 120:
+        return 0.95, 0.42
+    if size < 280:
+        return 1.20, 0.55
+    return 1.45, 0.70
+
+
+def support_ordered_groups(df: pd.DataFrame, support_col: str = "_plot_support") -> list[pd.DataFrame]:
+    if df.empty:
+        return []
+    ordered = df.sort_values(support_col, ascending=True, kind="mergesort")
+    return [group.copy() for _, group in ordered.groupby(support_col, sort=True)]
+
+
+def adjusted_breakpoint_ticks(genome_length: int, y_max: float) -> tuple[list[float], list[str]]:
+    base_ticks = [0, 2000, 4000, 6000, 8000, 10000, 12000, 14000, genome_length]
+    ticks = [float(tick) for tick in base_ticks if tick <= y_max]
+    labels = [f"{int(tick):,}" if tick != genome_length else f"{genome_length:,} / 0" for tick in ticks]
+    for tick in [2000, 4000, 6000, 8000]:
+        adjusted = genome_length + tick
+        if adjusted <= y_max:
+            ticks.append(float(adjusted))
+            labels.append(f"{tick:,}")
+    return ticks, labels
+
+
+def write_location_plot_pages(figures: list[plt.Figure], path: str) -> None:
+    ensure_parent(path)
+    with PdfPages(path) as pdf:
+        for fig in figures:
+            pdf.savefig(fig, bbox_inches="tight")
+    if figures:
+        figures[0].savefig(Path(path).with_suffix(".svg"), bbox_inches="tight")
+
+
+def save_location_sidecar(fig: plt.Figure, path: str, group: str) -> None:
+    sidecar_pdf = Path(path).with_name(f"{Path(path).stem}__{safe_filename(group)}.pdf")
+    ensure_parent(sidecar_pdf)
+    fig.savefig(sidecar_pdf, bbox_inches="tight")
+    fig.savefig(sidecar_pdf.with_suffix(".svg"), bbox_inches="tight")
+
+
+def clear_location_sidecars(path: str) -> None:
+    for old in Path(path).parent.glob(f"{Path(path).stem}__*.pdf"):
+        old.unlink()
+    for old in Path(path).parent.glob(f"{Path(path).stem}__*.svg"):
+        old.unlink()
+
+
+def add_location_legend(
+    fig: plt.Figure,
+    legend_ax: plt.Axes,
+    scatter,
+    legend_values: list[float],
+    support_min: float,
+    support_max: float,
+    support_label: str,
+    show_origin_outline: bool,
+    origin_label: str,
+    note: str | None = None,
+) -> None:
+    legend_ax.set_axis_off()
+    legend_ax.text(0.5, 0.82, "Point color", ha="center", va="center", fontsize=9, fontweight="bold", transform=legend_ax.transAxes)
+    legend_ax.text(0.5, 0.76, f"{support_label}\nlog color scale", ha="center", va="center", fontsize=8, transform=legend_ax.transAxes)
+    cax = legend_ax.inset_axes([0.16, 0.68, 0.72, 0.045])
+    cb = fig.colorbar(scatter, cax=cax, orientation="horizontal")
+    cb.set_ticks(legend_values)
+    cb.ax.set_xticklabels([support_tick_label(float(value)) for value in legend_values], fontsize=7)
+    cb.ax.xaxis.set_minor_locator(ticker.NullLocator())
+    cb.ax.tick_params(axis="x", length=2, pad=1)
+    size_ax = legend_ax.inset_axes([0.13, 0.38, 0.80, 0.18])
+    draw_support_size_scale(size_ax, legend_values, support_min, support_max, scatter.norm, scatter.cmap, support_label)
+    if show_origin_outline:
+        legend_ax.scatter([0.30], [0.15], s=120, facecolors="none", edgecolors=ORIGIN_OUTLINE_COLOR, linewidths=1.5, transform=legend_ax.transAxes, clip_on=False)
+        legend_ax.text(0.44, 0.15, origin_label, va="center", fontsize=8, transform=legend_ax.transAxes)
+    if note:
+        legend_ax.text(0.5, 0.07, note, ha="center", va="center", fontsize=8, transform=legend_ax.transAxes)
+
+
+def prepare_location_plot_data(
+    reads: pd.DataFrame,
+    samples: pd.DataFrame,
+    group_col: str,
+    min_support_per_million: float = 0.0,
+    max_points_per_group: int = 0,
+) -> tuple[pd.DataFrame, list[str], str]:
     if reads.empty:
-        empty(path, "Deletion Position/Size Abundance", "No deletion-supporting reads are available for position/size plotting")
-        return
+        return pd.DataFrame(), [], "Deletion-supporting reads"
     df = reads.copy()
     df["left_breakpoint"] = pd.to_numeric(df["left_breakpoint"], errors="coerce")
     df["right_breakpoint"] = pd.to_numeric(df["right_breakpoint"], errors="coerce")
     df["deleted_size"] = pd.to_numeric(df["deleted_size"], errors="coerce")
     df = df.dropna(subset=["left_breakpoint", "right_breakpoint", "deleted_size"])
-    df["midpoint"] = (df["left_breakpoint"] + df["right_breakpoint"]) / 2
     sample_cols = ["sample", group_col] if group_col in samples.columns else ["sample"]
     for col in ["normalization_denominator", "normalization_reads", "reads_passed_to_minimap2"]:
         if col in samples.columns:
             sample_cols.append(col)
     df = df.merge(samples[sample_cols], on="sample", how="left")
-    if group_col in df.columns:
-        df["_plot_group"] = df[group_col].fillna("missing").astype(str)
-    else:
-        df["_plot_group"] = "all"
+    df["_plot_group"] = df[group_col].fillna("missing").astype(str) if group_col in df.columns else "all"
     if "normalization_reads" in df.columns or "reads_passed_to_minimap2" in df.columns:
         denom_col = "normalization_reads" if "normalization_reads" in df.columns else "reads_passed_to_minimap2"
         denom = pd.to_numeric(df[denom_col], errors="coerce")
@@ -819,107 +1098,239 @@ def rainfall(reads: pd.DataFrame, samples: pd.DataFrame, features: pd.DataFrame,
         df.groupby(["_plot_group", "left_breakpoint", "right_breakpoint", "deleted_size"], as_index=False)
         .agg(supporting_reads=("sample", "size"), support_per_million_mt_reads=("_support_weight", "sum"))
     )
-    grouped["midpoint"] = (grouped["left_breakpoint"] + grouped["right_breakpoint"]) / 2
     grouped["_plot_support"] = pd.to_numeric(grouped[support_col], errors="coerce").fillna(0)
+    if support_col == "support_per_million_mt_reads" and min_support_per_million > 0:
+        grouped = grouped[grouped["_plot_support"] >= min_support_per_million].copy()
     groups = [group for group in ordered_groups(samples, group_col) if group in set(grouped["_plot_group"])] or sorted(grouped["_plot_group"].unique())
-    for old in Path(path).parent.glob(f"{Path(path).stem}__*.pdf"):
-        old.unlink()
-    for old in Path(path).parent.glob(f"{Path(path).stem}__*.svg"):
-        old.unlink()
-    observed_support_min, observed_support_max = rainfall_support_limits(grouped["_plot_support"])
-    support_min, support_max = support_scale_limits(observed_support_min, observed_support_max)
+    capped = []
+    for group in groups:
+        sub = grouped[grouped["_plot_group"] == group].sort_values("_plot_support", ascending=False)
+        if max_points_per_group > 0:
+            sub = sub.head(max_points_per_group)
+        capped.append(sub)
+    grouped = pd.concat(capped, ignore_index=True) if capped else grouped.iloc[0:0].copy()
+    return grouped, groups, support_label
+
+
+def location_support_scale(display_grouped: pd.DataFrame) -> tuple[float, float, colors.Normalize, list[float]]:
+    observed_min, observed_max = rainfall_support_limits(display_grouped["_plot_support"] if "_plot_support" in display_grouped.columns else [])
+    support_min, support_max = support_scale_limits(observed_min, observed_max)
     if support_min < support_max:
         support_norm: colors.Normalize = colors.LogNorm(vmin=support_min, vmax=support_max)
     else:
         support_norm = colors.Normalize(vmin=0, vmax=max(support_max, 1.0))
-    legend_values = support_legend_values(support_min, support_max)
-    y_axis_min = rainfall_y_axis_min(grouped["deleted_size"])
-    figures: list[plt.Figure] = []
-    sidecars = []
-    for group_index, group in enumerate(groups):
-        sub = grouped[grouped["_plot_group"] == group].sort_values("_plot_support", ascending=False).head(300)
-        draw_sub = sub.sort_values("_plot_support", ascending=False)
-        fig = plt.figure(figsize=(14.4, 6.9), constrained_layout=True)
-        grid = fig.add_gridspec(
-            2,
-            2,
-            width_ratios=[1.0, 0.38],
-            height_ratios=[5.2, 1.0],
-            hspace=0.05,
-            wspace=0.14,
+    return support_min, support_max, support_norm, support_legend_values(support_min, support_max)
+
+
+def draw_location_points(
+    ax: plt.Axes,
+    data: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    support_min: float,
+    support_max: float,
+    support_norm: colors.Normalize,
+    cmap,
+    outline_crossing: bool = True,
+):
+    non_origin = data[~data["crosses_origin"]]
+    origin = data[data["crosses_origin"]]
+    scatter = None
+    if not non_origin.empty:
+        ordered = non_origin.sort_values("_plot_support", ascending=True, kind="mergesort")
+        scatter = ax.scatter(
+            ordered[x_col],
+            ordered[y_col],
+            c=ordered["_plot_support"],
+            s=rainfall_point_sizes(ordered["_plot_support"], support_min, support_max),
+            cmap=cmap,
+            norm=support_norm,
+            edgecolors="#17202a",
+            linewidths=0.35,
+            alpha=1.0,
+            zorder=3,
         )
+    if not origin.empty:
+        for chunk_index, chunk in enumerate(support_ordered_groups(origin)):
+            chunk_sizes = rainfall_point_sizes(chunk["_plot_support"], support_min, support_max)
+            zbase = 4.0 + chunk_index * 0.02
+            origin_scatter = ax.scatter(
+                chunk[x_col],
+                chunk[y_col],
+                c=chunk["_plot_support"],
+                s=chunk_sizes,
+                cmap=cmap,
+                norm=support_norm,
+                edgecolors="#17202a",
+                linewidths=0.35,
+                alpha=1.0,
+                zorder=zbase,
+            )
+            if scatter is None:
+                scatter = origin_scatter
+            if outline_crossing:
+                outer_lw, _ = origin_outline_linewidths(chunk_sizes)
+                ax.scatter(chunk[x_col], chunk[y_col], s=chunk_sizes, facecolors="none", edgecolors=ORIGIN_OUTLINE_COLOR, linewidths=outer_lw, alpha=0.98, zorder=zbase + 0.01)
+    return scatter
+
+
+def location_rainfall(
+    display_grouped: pd.DataFrame,
+    groups: list[str],
+    features: pd.DataFrame,
+    config: dict,
+    mt_length: int,
+    path: str,
+    title_prefix: str,
+    x_col: str,
+    x_label: str,
+    support_label: str,
+) -> None:
+    clear_location_sidecars(path)
+    if display_grouped.empty:
+        empty(path, title_prefix, "No exact deletions meet the location plot display threshold")
+        return
+    plot_features = location_features(features, config)
+    genome_length = location_genome_length(mt_length, plot_features, display_grouped)
+    work = display_grouped.copy()
+    work["crosses_origin"] = work["right_breakpoint"] < work["left_breakpoint"]
+    work["circular_midpoint"] = circular_deleted_interval_midpoint(work, genome_length)
+    work["_plot_x"] = work[x_col] if x_col in {"left_breakpoint", "right_breakpoint"} else work["circular_midpoint"]
+    support_min, support_max, support_norm, legend_values = location_support_scale(work)
+    y_axis_min = rainfall_y_axis_min(work["deleted_size"])
+    figures: list[plt.Figure] = []
+    for group in groups:
+        sub = work[work["_plot_group"] == group].copy()
+        fig = plt.figure(figsize=(15.2, 7.7), constrained_layout=True)
+        grid = fig.add_gridspec(2, 2, height_ratios=[5.1, 1.05], width_ratios=[1, 0.28], hspace=0.04, wspace=0.10)
         ax = fig.add_subplot(grid[0, 0])
         feature_ax = fig.add_subplot(grid[1, 0], sharex=ax)
-        legend_grid = grid[:, 1].subgridspec(
-            6,
-            1,
-            height_ratios=[0.34, 0.62, 0.34, 0.18, 1.18, 2.6],
-            hspace=0.18,
-        )
+        legend_ax = fig.add_subplot(grid[:, 1])
         scatter = None
         if sub.empty:
-            ax.text(0.5, 0.5, "No deletion-supporting reads in this group", ha="center", va="center", transform=ax.transAxes)
+            ax.text(0.5, 0.5, "No exact deletions meet the location plot display threshold", ha="center", va="center", wrap=True, transform=ax.transAxes)
+            legend_ax.set_axis_off()
         else:
-            sizes = rainfall_point_sizes(draw_sub["_plot_support"], support_min, support_max)
-            scatter = ax.scatter(
-                draw_sub["midpoint"],
-                draw_sub["deleted_size"],
-                c=draw_sub["_plot_support"],
-                s=sizes,
-                cmap="magma",
-                norm=support_norm,
-                alpha=0.78,
-                edgecolors="#1f2933",
-                linewidths=0.35,
-            )
-        ax.set_title(f"Deletion Position/Size Abundance: {group}")
+            scatter = draw_location_points(ax, sub, "_plot_x", "deleted_size", support_min, support_max, support_norm, location_support_colormap(), outline_crossing=True)
+        ax.set_title(f"{title_prefix}: {group}")
         ax.set_ylabel("Deleted size (bp)")
-        y_min = y_axis_min
         y_max = max(10_000, float(sub["deleted_size"].max()) * 1.18) if not sub.empty else 10_000
-        ax.set_ylim(y_min, y_max)
+        ax.set_ylim(y_axis_min, y_max)
         format_deletion_size_log_axis(ax)
-        x_min, x_max = draw_feature_track_axis(feature_ax, features)
-        ax.set_xlim(x_min, x_max)
-        feature_ax.set_xlim(x_min, x_max)
-        feature_ax.set_xlabel("Deletion midpoint on mitochondrial genome (bp)")
+        ax.set_xlim(1, genome_length)
+        draw_location_feature_track(feature_ax, plot_features, genome_length, x_min=1, x_max=genome_length)
+        feature_ax.set_xlabel(x_label)
         if scatter is not None:
-            color_title_ax = fig.add_subplot(legend_grid[0, 0])
-            color_title_ax.set_axis_off()
-            color_title_ax.text(0.5, 0.5, "Point color", ha="center", va="center", fontsize=9, fontweight="bold")
-
-            color_label_ax = fig.add_subplot(legend_grid[1, 0])
-            color_label_ax.set_axis_off()
-            color_label = f"{support_label}\nlog color scale"
-            color_label_ax.text(0.5, 0.5, color_label, ha="center", va="center", fontsize=8)
-
-            cbar_ax = fig.add_subplot(legend_grid[2, 0])
-            cbar = fig.colorbar(scatter, cax=cbar_ax, orientation="horizontal")
-            if legend_values:
-                cbar.set_ticks(legend_values)
-                cbar.set_ticklabels([support_tick_label(value) for value in legend_values])
-            cbar.ax.xaxis.set_minor_locator(ticker.NullLocator())
-            cbar.ax.tick_params(axis="x", which="minor", bottom=False, top=False)
-            cbar.ax.tick_params(axis="x", which="major", labelsize=8, length=3)
-            cbar.outline.set_linewidth(0.5)
-            if legend_values:
-                size_ax = fig.add_subplot(legend_grid[4, 0])
-                draw_support_size_scale(size_ax, legend_values, support_min, support_max, scatter.norm, scatter.cmap, support_label)
-        else:
-            blank_legend_ax = fig.add_subplot(grid[:, 1])
-            blank_legend_ax.set_axis_off()
-        sidecar_pdf = Path(path).with_name(f"{Path(path).stem}__{safe_filename(group)}.pdf")
-        sidecar_svg = sidecar_pdf.with_suffix(".svg")
-        ensure_parent(sidecar_pdf)
-        fig.savefig(sidecar_pdf, bbox_inches="tight")
-        fig.savefig(sidecar_svg, bbox_inches="tight")
-        if group_index == 0:
-            fig.savefig(path, bbox_inches="tight")
-            fig.savefig(Path(path).with_suffix(".svg"), bbox_inches="tight")
+            add_location_legend(
+                fig,
+                legend_ax,
+                scatter,
+                legend_values,
+                support_min,
+                support_max,
+                support_label,
+                show_origin_outline=bool(sub["crosses_origin"].any()),
+                origin_label="cyan outline =\norigin-spanning deletion",
+            )
+        save_location_sidecar(fig, path, group)
         figures.append(fig)
-        sidecars.append(sidecar_pdf)
-    save_multi_page(figures, path)
+    write_location_plot_pages(figures, path)
     for fig in figures:
         plt.close(fig)
+
+
+def breakpoint_pair_support_map(display_grouped: pd.DataFrame, groups: list[str], features: pd.DataFrame, config: dict, mt_length: int, path: str, support_label: str) -> None:
+    clear_location_sidecars(path)
+    if display_grouped.empty:
+        empty(path, "Breakpoint-Pair Support Map", "No exact deletions meet the breakpoint-pair display threshold")
+        return
+    plot_features = location_features(features, config)
+    genome_length = location_genome_length(mt_length, plot_features, display_grouped)
+    work = display_grouped.copy()
+    work["crosses_origin"] = work["right_breakpoint"] < work["left_breakpoint"]
+    work["adjusted_right_breakpoint"] = np.where(work["crosses_origin"], work["right_breakpoint"] + genome_length, work["right_breakpoint"])
+    support_min, support_max, support_norm, legend_values = location_support_scale(work)
+    figures: list[plt.Figure] = []
+    for group in groups:
+        sub = work[work["_plot_group"] == group].copy()
+        fig = plt.figure(figsize=(15.2, 8.0), constrained_layout=True)
+        grid = fig.add_gridspec(2, 2, height_ratios=[5.4, 1.05], width_ratios=[1, 0.28], hspace=0.04, wspace=0.10)
+        ax = fig.add_subplot(grid[0, 0])
+        feature_ax = fig.add_subplot(grid[1, 0], sharex=ax)
+        legend_ax = fig.add_subplot(grid[:, 1])
+        scatter = None
+        if sub.empty:
+            ax.text(0.5, 0.5, "No exact deletions meet the breakpoint-pair display threshold", ha="center", va="center", wrap=True, transform=ax.transAxes)
+            legend_ax.set_axis_off()
+        else:
+            pairs = (
+                sub.groupby(["left_breakpoint", "right_breakpoint", "adjusted_right_breakpoint", "crosses_origin"], as_index=False)
+                .agg(_plot_support=("_plot_support", "sum"), supporting_reads=("supporting_reads", "sum"))
+                .sort_values("_plot_support", ascending=True, kind="mergesort")
+            )
+            scatter = draw_location_points(ax, pairs, "left_breakpoint", "adjusted_right_breakpoint", support_min, support_max, support_norm, location_support_colormap(), outline_crossing=True)
+        y_max = max(float(genome_length), float(sub["adjusted_right_breakpoint"].max()) if not sub.empty else float(genome_length))
+        y_axis_max = y_max + max(250.0, (y_max - 1.0) * 0.035)
+        ax.set_xlim(0, genome_length)
+        ax.set_ylim(0, y_axis_max)
+        y_ticks, y_labels = adjusted_breakpoint_ticks(genome_length, y_axis_max)
+        ax.set_yticks(y_ticks)
+        ax.set_yticklabels(y_labels)
+        ax.plot([0, genome_length], [0, genome_length], color="#64748b", linewidth=0.8, linestyle="--", alpha=0.45, zorder=1)
+        ax.axhline(genome_length, color="#334155", linewidth=0.9, linestyle=":", alpha=0.75, zorder=2)
+        ax.set_title(f"Breakpoint-Pair Support Map: {group}")
+        ax.set_ylabel("Deletion end / right breakpoint (bp; labels restart after origin)")
+        ax.grid(axis="both", color="#d9dee7", linewidth=0.65, alpha=0.55)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.tick_params(axis="x", labelbottom=True)
+        draw_location_feature_track(feature_ax, plot_features, genome_length, x_min=1, x_max=genome_length)
+        feature_ax.set_xlim(0, genome_length)
+        feature_ax.set_xlabel("Deletion start / left breakpoint on mitochondrial genome (bp)")
+        if scatter is not None:
+            add_location_legend(
+                fig,
+                legend_ax,
+                scatter,
+                legend_values,
+                support_min,
+                support_max,
+                support_label,
+                show_origin_outline=bool(sub["crosses_origin"].any()),
+                origin_label="cyan outline =\norigin-crossing deletion",
+                note="Each dot is one unique left/right breakpoint pair.\nPoints above the horizontal line cross the origin.",
+            )
+        save_location_sidecar(fig, path, group)
+        figures.append(fig)
+    write_location_plot_pages(figures, path)
+    for fig in figures:
+        plt.close(fig)
+
+
+def location_plots(
+    reads: pd.DataFrame,
+    samples: pd.DataFrame,
+    features: pd.DataFrame,
+    config: dict,
+    mt_length: int,
+    group_col: str,
+    out_left: str,
+    out_right: str,
+    out_midpoint: str,
+    out_pair_map: str,
+    min_support_per_million: float = 0.0,
+    max_points_per_group: int = 0,
+) -> None:
+    display_grouped, groups, support_label = prepare_location_plot_data(
+        reads,
+        samples,
+        group_col,
+        min_support_per_million=min_support_per_million,
+        max_points_per_group=max_points_per_group,
+    )
+    location_rainfall(display_grouped, groups, features, config, mt_length, out_left, "Deletion Rainfall By Canonical Left Breakpoint", "left_breakpoint", "Canonical left breakpoint on mitochondrial genome (bp)", support_label)
+    location_rainfall(display_grouped, groups, features, config, mt_length, out_right, "Deletion Rainfall By Canonical Right Breakpoint", "right_breakpoint", "Canonical right breakpoint on mitochondrial genome (bp)", support_label)
+    location_rainfall(display_grouped, groups, features, config, mt_length, out_midpoint, "Deletion Rainfall By Circular Deleted-Interval Midpoint", "circular_midpoint", "Circular midpoint of deleted interval on mitochondrial genome (bp)", support_label)
+    breakpoint_pair_support_map(display_grouped, groups, features, config, mt_length, out_pair_map, support_label)
 
 
 def category_bar(matrix: pd.DataFrame, samples: pd.DataFrame, group_col: str, path: str, title: str, ylabel: str, top_n: int = 14, proportional: bool = False) -> None:
@@ -1112,6 +1523,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--samples", required=True)
     parser.add_argument("--features", required=True)
+    parser.add_argument("--config", default="")
+    parser.add_argument("--mt-length", type=int, default=0)
     parser.add_argument("--all-reads", required=True)
     parser.add_argument("--clusters", required=True)
     parser.add_argument("--burden", required=True)
@@ -1132,7 +1545,10 @@ def main() -> None:
     parser.add_argument("--out-size-small", required=True)
     parser.add_argument("--out-size-medium", required=True)
     parser.add_argument("--out-size-large", required=True)
-    parser.add_argument("--out-rainfall", required=True)
+    parser.add_argument("--out-rainfall-left", required=True)
+    parser.add_argument("--out-rainfall-right", required=True)
+    parser.add_argument("--out-rainfall-midpoint", required=True)
+    parser.add_argument("--out-breakpoint-pair-map", required=True)
     parser.add_argument("--out-affected-support", required=True)
     parser.add_argument("--out-affected-counts", required=True)
     parser.add_argument("--out-affected-proportions", required=True)
@@ -1143,9 +1559,12 @@ def main() -> None:
     parser.add_argument("--out-exact-mds", required=True)
     parser.add_argument("--out-affected-pca", required=True)
     parser.add_argument("--out-affected-mds", required=True)
+    parser.add_argument("--rainfall-min-support-per-million", type=float, default=0.0)
+    parser.add_argument("--rainfall-max-points-per-group", type=int, default=0)
     args = parser.parse_args()
 
     samples = pd.read_csv(args.samples, sep="\t")
+    config = read_yaml_safe(args.config)
     features = read_tsv_safe(args.features)
     reads = read_tsv_safe(args.all_reads)
     reads = deduplicate_evidence_reads(normalize_deletion_ids(reads))
@@ -1172,7 +1591,20 @@ def main() -> None:
     size_distribution(reads, burden, args.group_column, args.out_size_small, "Small Deletion Size Distribution (<1 kb)", weighted=True, size_max=999)
     size_distribution(reads, burden, args.group_column, args.out_size_medium, "Medium Deletion Size Distribution (1-5 kb)", weighted=True, size_min=1000, size_max=4999)
     size_distribution(reads, burden, args.group_column, args.out_size_large, "Large Deletion Size Distribution (>=5 kb)", weighted=True, size_min=5000)
-    rainfall(reads, burden, features, args.group_column, args.out_rainfall)
+    location_plots(
+        reads,
+        burden,
+        features,
+        config,
+        args.mt_length,
+        args.group_column,
+        args.out_rainfall_left,
+        args.out_rainfall_right,
+        args.out_rainfall_midpoint,
+        args.out_breakpoint_pair_map,
+        min_support_per_million=args.rainfall_min_support_per_million,
+        max_points_per_group=args.rainfall_max_points_per_group,
+    )
     category_bar(affected_mtpm, samples, args.group_column, args.out_affected_support, "Affected Features: Normalized Abundance", support_label)
     category_bar(affected_raw, samples, args.group_column, args.out_affected_counts, "Affected Features: Raw Supporting Reads", "Supporting reads")
     category_bar(affected_mtpm, samples, args.group_column, args.out_affected_proportions, "Affected Features: Within-Group Percent", "Percent", proportional=True)

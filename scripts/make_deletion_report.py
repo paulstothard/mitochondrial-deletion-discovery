@@ -88,6 +88,22 @@ def normalization_definition(burden: pd.DataFrame, config: dict | None = None) -
     return "The main normalized plots and burden tables divide deletion-supporting reads by the total usable reads after read preparation in each sample, then scale to one million reads."
 
 
+def rainfall_display_definition(config: dict, burden: pd.DataFrame) -> str:
+    plots = config.get("plots", {}) or {}
+    min_support = float(plots.get("rainfall_min_support_per_million", 0) or 0)
+    max_points = int(plots.get("rainfall_max_points_per_group", 0) or 0)
+    if min_support > 0:
+        rule = (
+            "Each full-size figure shows exact deletions whose normalized support is at least "
+            f"{min_support:g} {normalization_phrase(burden, config)} in that plotted group."
+        )
+    else:
+        rule = "Each full-size figure shows all exact deletions available for that plotted group."
+    if max_points > 0:
+        rule += f" If more than {max_points:,} deletions pass that threshold, only the {max_points:,} highest-support deletions are drawn."
+    return rule
+
+
 def read_table(path: str) -> pd.DataFrame:
     if not path or not Path(path).exists():
         return pd.DataFrame()
@@ -780,7 +796,12 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
     pdf_name = html.escape(Path(path).name)
     panel_class = "plot-panel " + Path(path).stem.replace("-", "_")
     sidecar_svgs = sorted(Path(path).parent.glob(f"{Path(path).stem}__*.svg"))
-    if Path(path).stem == "deletion_rainfall" and sidecar_svgs:
+    if Path(path).stem in {
+        "deletion_rainfall_left_breakpoint",
+        "deletion_rainfall_right_breakpoint",
+        "deletion_rainfall_midpoint",
+        "breakpoint_pair_support_map",
+    } and sidecar_svgs:
         previews = []
         for sidecar_svg in sidecar_svgs:
             group_label = sidecar_svg.stem.split("__", 1)[-1].replace("_", " ")
@@ -1537,7 +1558,10 @@ def main() -> None:
         "deletion_size_distribution_small.pdf": ("Small Deletions (<1 kb)", "Restricted normalized size distribution for small deletions. This separates the dense short-deletion range from larger events."),
         "deletion_size_distribution_medium.pdf": ("Medium Deletions (1-5 kb)", "Restricted normalized size distribution for medium deletions, where group-specific peaks can be hidden in the full-range plot."),
         "deletion_size_distribution_large.pdf": ("Large Deletions (>=5 kb)", "Restricted normalized size distribution for large deletions. This is useful for common-deletion-sized or paper-sized events."),
-        "deletion_rainfall.pdf": ("Deletion Position/Size Abundance", "Each full-size figure shows one group. Each point is one exact deletion, placed by mitochondrial midpoint and deleted size on a log y-axis. Larger and brighter points have more normalized support. The feature track below the x-axis provides mitochondrial coordinate context without making the point cloud depend on gene labels."),
+        "deletion_rainfall_left_breakpoint.pdf": ("Deletion Rainfall: Left Breakpoint", f"{rainfall_display_definition(config, burden)} Each point is one displayed exact deletion, placed by canonical left breakpoint and deleted size on a log y-axis. Larger and brighter points have more normalized support. A cyan outline marks origin-spanning deletions. This is a display filter for the plot only; the exact-deletion table remains the complete call list subject to its own table-display settings."),
+        "deletion_rainfall_right_breakpoint.pdf": ("Deletion Rainfall: Right Breakpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same displayed exact deletions and support scale as the left-breakpoint rainfall plot, but places each point by canonical right breakpoint. Comparing left and right views helps identify fixed-endpoint patterns."),
+        "deletion_rainfall_midpoint.pdf": ("Deletion Rainfall: Circular Midpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the circular midpoint of the deleted interval, so origin-spanning deletions are positioned by the midpoint along the deleted circular path rather than by a simple linear average."),
+        "breakpoint_pair_support_map.pdf": ("Breakpoint-Pair Support Map", f"{rainfall_display_definition(config, burden)} Each point is one unique left/right breakpoint pair after applying the same display threshold and optional per-group cap as the rainfall plots. The x-axis is the left breakpoint; the y-axis is the right breakpoint, with origin-crossing right breakpoints shown above the horizontal genome-end line."),
         "affected_feature_support.pdf": ("Affected Features: Normalized Abundance", f"This bar chart compares affected-feature categories after normalizing each sample {normalization_phrase(burden)}. Use this as the main abundance view when groups have different sequencing depth or mitochondrial read recovery."),
         "affected_feature_counts.pdf": ("Affected Features: Raw Supporting Reads", "This uses the same affected-feature categories as the normalized plot, but shows raw supporting read counts. It can look similar when sample depths are similar; disagreement between this and the normalized plot suggests depth or recovery differences."),
         "affected_feature_proportions.pdf": ("Affected Features: Within-Group Percent", "This uses the same affected-feature categories again, but rescales each group to 100 percent. It asks whether the mix of affected features changes, independent of total deletion burden."),
@@ -1558,7 +1582,10 @@ def main() -> None:
         "deletion_size_distribution_small.pdf",
         "deletion_size_distribution_medium.pdf",
         "deletion_size_distribution_large.pdf",
-        "deletion_rainfall.pdf",
+        "deletion_rainfall_left_breakpoint.pdf",
+        "deletion_rainfall_right_breakpoint.pdf",
+        "deletion_rainfall_midpoint.pdf",
+        "breakpoint_pair_support_map.pdf",
         "affected_feature_support.pdf",
         "affected_feature_proportions.pdf",
         "feature_impact_classes.pdf",
@@ -1604,8 +1631,14 @@ def main() -> None:
     .plot-link { background: #285f8f; color: white; border-radius: 5px; padding: 7px 10px; text-decoration: none; font-size: 13px; white-space: nowrap; }
     .plot-svg { max-width: 1100px; }
     .plot-svg svg { width: 100%; height: auto; max-height: 430px; }
-    .deletion_rainfall .plot-svg { max-width: 1180px; }
-    .deletion_rainfall .plot-svg svg { max-height: 900px; }
+    .deletion_rainfall_left_breakpoint .plot-svg,
+    .deletion_rainfall_right_breakpoint .plot-svg,
+    .deletion_rainfall_midpoint .plot-svg,
+    .breakpoint_pair_support_map .plot-svg { max-width: 1180px; }
+    .deletion_rainfall_left_breakpoint .plot-svg svg,
+    .deletion_rainfall_right_breakpoint .plot-svg svg,
+    .deletion_rainfall_midpoint .plot-svg svg,
+    .breakpoint_pair_support_map .plot-svg svg { max-height: 900px; }
     .plot-missing, .empty, .notice { color: #8a4b16; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; padding: 12px; margin: 12px 0; }
     .table-wrap { background: white; border: 1px solid #d8dee8; border-radius: 6px; box-sizing: border-box; margin-top: 12px; max-height: 560px; max-width: 100%; overflow: auto; }
     .table-controls { align-items: center; background: #ffffff; border-bottom: 1px solid #d8dee8; display: flex; flex-wrap: wrap; gap: 10px; left: 0; margin: 0; padding: 8px; position: sticky; top: 0; z-index: 4; }

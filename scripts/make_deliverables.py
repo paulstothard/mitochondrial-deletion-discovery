@@ -19,7 +19,10 @@ PLOTS = [
     "deletion_size_distribution_small.pdf",
     "deletion_size_distribution_medium.pdf",
     "deletion_size_distribution_large.pdf",
-    "deletion_rainfall.pdf",
+    "deletion_rainfall_left_breakpoint.pdf",
+    "deletion_rainfall_right_breakpoint.pdf",
+    "deletion_rainfall_midpoint.pdf",
+    "breakpoint_pair_support_map.pdf",
     "affected_feature_support.pdf",
     "affected_feature_counts.pdf",
     "affected_feature_proportions.pdf",
@@ -72,7 +75,10 @@ PLOT_EXPLANATIONS = {
     "deletion_size_distribution_small.pdf": "Support-weighted deletion size distribution below 1 kb.",
     "deletion_size_distribution_medium.pdf": "Support-weighted deletion size distribution from 1 kb to 5 kb.",
     "deletion_size_distribution_large.pdf": "Support-weighted deletion size distribution at 5 kb and above.",
-    "deletion_rainfall.pdf": "Location-size plot of post-remap deletion calls with one full-size figure per group, log-scaled deletion size, and a mitochondrial feature track.",
+    "deletion_rainfall_left_breakpoint.pdf": "Location-size plot of post-remap deletion calls placed by canonical left breakpoint.",
+    "deletion_rainfall_right_breakpoint.pdf": "Location-size plot of post-remap deletion calls placed by canonical right breakpoint.",
+    "deletion_rainfall_midpoint.pdf": "Location-size plot of post-remap deletion calls placed by circular deleted-interval midpoint.",
+    "breakpoint_pair_support_map.pdf": "Breakpoint-pair support map showing which deletion starts pair with which deletion ends.",
     "affected_feature_support.pdf": "Affected-feature categories compared by normalized support.",
     "affected_feature_counts.pdf": "Affected-feature categories compared by read support counts.",
     "affected_feature_proportions.pdf": "Within-group composition of affected-feature categories.",
@@ -152,8 +158,13 @@ def main() -> None:
         src = root / "plots" / plot
         copy_if_exists(src, out / "plots" / plot, copied)
         copy_if_exists(src.with_suffix(".svg"), out / "plots" / src.with_suffix(".svg").name, copied)
-        if plot == "deletion_rainfall.pdf":
-            for sidecar in sorted((root / "plots").glob("deletion_rainfall__*.pdf")):
+        if plot in {
+            "deletion_rainfall_left_breakpoint.pdf",
+            "deletion_rainfall_right_breakpoint.pdf",
+            "deletion_rainfall_midpoint.pdf",
+            "breakpoint_pair_support_map.pdf",
+        }:
+            for sidecar in sorted((root / "plots").glob(f"{Path(plot).stem}__*.pdf")):
                 copy_if_exists(sidecar, out / "plots" / sidecar.name, copied)
                 copy_if_exists(sidecar.with_suffix(".svg"), out / "plots" / sidecar.with_suffix(".svg").name, copied)
     for src_rel, dst_rel in TABLES:

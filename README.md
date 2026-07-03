@@ -212,7 +212,8 @@ Main plots include:
 - distinct exact deletions by sample and group;
 - age-by-treatment interaction plots when `age` and `treatment` metadata are present;
 - deletion size distributions, including log-y and size-restricted views;
-- deletion position/size abundance plots, shown as full-size per-group figures with log-scaled deletion size;
+- deletion rainfall plots shown as full-size per-group figures by left breakpoint, right breakpoint, and circular deleted-interval midpoint;
+- breakpoint-pair support maps showing which deletion starts pair with which deletion ends;
 - affected-feature normalized support and within-group proportions;
 - collapsed feature-impact classes;
 - per-gene affected burden;
@@ -220,6 +221,8 @@ Main plots include:
 - PCA and Bray-Curtis MDS for exact deletions and affected-feature categories, without static sample labels or centroids.
 
 Plot group order and colors are chosen once per report and reused across plots. For two-factor designs with `age` and `treatment`, groups are ordered by age and then treatment, with control-like groups first within each age. Control-like groups use subdued colors and treatment groups use red-family colors when possible.
+
+The deletion rainfall plots and breakpoint-pair support map are visual displays, not separate calling steps. They all use the same display rule. By default they draw exact deletions with at least `plots.rainfall_min_support_per_million: 1.0` normalized supporting reads per million usable reads in the plotted group. `plots.rainfall_max_points_per_group: 0` means there is no rank-based top-N cap. Raising the normalized threshold can make very large reports easier to inspect without making datasets incomparable through a hidden top-N rule.
 
 Large result tables in the HTML report are searchable, sortable, and paged. Small tables are shown directly without search controls.
 

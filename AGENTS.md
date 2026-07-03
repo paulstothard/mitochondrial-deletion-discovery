@@ -1,5 +1,6 @@
 # Project Instructions
 
+- The active GitHub checkout for this project is `active-github-repo/mitochondrial-deletion-discovery`. Use that subfolder for repository edits unless the user explicitly asks to work in the outer scratch tree or another copy.
 - Before giving the user any Snakemake command to run, perform a dry-run of that exact command first, or explicitly state why a dry-run is impossible.
 - For reruns from existing intermediate data, verify the dry-run job list does not include unintended download or trimming rules before recommending the command.
 - After changes that affect plotting, report generation, matrices, normalization, grouping, labels, or table columns, test the code and inspect the generated plots/report before calling the work done. Check that plots use biological columns rather than workflow metadata, legends and labels are not clipped or misleading, empty panels explain the real reason they are unavailable, group colors/orders are consistent, and report text matches the current workflow behavior.

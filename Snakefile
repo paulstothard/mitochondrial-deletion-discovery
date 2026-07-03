@@ -190,7 +190,10 @@ rule all:
         f"{OUTDIR}/plots/deletion_size_distribution_small.pdf",
         f"{OUTDIR}/plots/deletion_size_distribution_medium.pdf",
         f"{OUTDIR}/plots/deletion_size_distribution_large.pdf",
-        f"{OUTDIR}/plots/deletion_rainfall.pdf",
+        f"{OUTDIR}/plots/deletion_rainfall_left_breakpoint.pdf",
+        f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
+        f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
+        f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
         f"{OUTDIR}/plots/affected_feature_support.pdf",
         f"{OUTDIR}/plots/affected_feature_counts.pdf",
         f"{OUTDIR}/plots/affected_feature_proportions.pdf",
@@ -872,6 +875,7 @@ rule build_matrices:
 
 rule plot_results:
     input:
+        config=DATASET_CONFIG if DATASET_CONFIG else RESOLVED_CONFIG,
         samples=lambda wildcards: checkpoints.resolve_samples.get().output.samples,
         features=f"{OUTDIR}/annotations/mt_features.tsv",
         all_reads=f"{OUTDIR}/junctions/all_samples.filtered_junction_reads.tsv",
@@ -894,7 +898,10 @@ rule plot_results:
         size_small=f"{OUTDIR}/plots/deletion_size_distribution_small.pdf",
         size_medium=f"{OUTDIR}/plots/deletion_size_distribution_medium.pdf",
         size_large=f"{OUTDIR}/plots/deletion_size_distribution_large.pdf",
-        rainfall=f"{OUTDIR}/plots/deletion_rainfall.pdf",
+        rainfall_left=f"{OUTDIR}/plots/deletion_rainfall_left_breakpoint.pdf",
+        rainfall_right=f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
+        rainfall_midpoint=f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
+        breakpoint_pair_map=f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
         affected_support=f"{OUTDIR}/plots/affected_feature_support.pdf",
         affected_counts=f"{OUTDIR}/plots/affected_feature_counts.pdf",
         affected_proportions=f"{OUTDIR}/plots/affected_feature_proportions.pdf",
@@ -907,10 +914,14 @@ rule plot_results:
         affected_mds=f"{OUTDIR}/plots/affected_feature_bray_curtis_mds.pdf",
     params:
         group=CFG["dataset"].get("primary_group_column", ""),
+        rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 1.0),
+        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 0),
+        mt_length=MT_LENGTH,
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:
         "python scripts/plot_deletion_results.py --samples {input.samples} --features {input.features} "
+        "--config {input.config} --mt-length {params.mt_length} "
         "--all-reads {input.all_reads} --clusters {input.clusters} --burden {input.burden} "
         "--exact-mtpm {input.exact_mtpm} --affected-raw {input.affected_raw} --affected-mtpm {input.affected_mtpm} "
         "--impact-class-mtpm {input.impact_mtpm} --per-gene-burden {input.per_gene} "
@@ -920,11 +931,15 @@ rule plot_results:
         "--out-size-unweighted {output.size_unweighted} --out-size-weighted {output.size_weighted} "
         "--out-size-weighted-log {output.size_weighted_log} --out-size-small {output.size_small} "
         "--out-size-medium {output.size_medium} --out-size-large {output.size_large} "
-        "--out-rainfall {output.rainfall} --out-affected-support {output.affected_support} "
+        "--out-rainfall-left {output.rainfall_left} --out-rainfall-right {output.rainfall_right} "
+        "--out-rainfall-midpoint {output.rainfall_midpoint} --out-breakpoint-pair-map {output.breakpoint_pair_map} "
+        "--out-affected-support {output.affected_support} "
         "--out-affected-counts {output.affected_counts} --out-affected-proportions {output.affected_proportions} "
         "--out-impact-class {output.impact} --out-per-gene {output.per_gene} --out-exact-recurrence {output.recurrence} "
         "--out-exact-pca {output.exact_pca} --out-exact-mds {output.exact_mds} "
-        "--out-affected-pca {output.affected_pca} --out-affected-mds {output.affected_mds}"
+        "--out-affected-pca {output.affected_pca} --out-affected-mds {output.affected_mds} "
+        "--rainfall-min-support-per-million {params.rainfall_min_support_per_million} "
+        "--rainfall-max-points-per-group {params.rainfall_max_points_per_group}"
 
 
 rule make_report:
@@ -957,7 +972,10 @@ rule make_report:
             f"{OUTDIR}/plots/deletion_size_distribution_small.pdf",
             f"{OUTDIR}/plots/deletion_size_distribution_medium.pdf",
             f"{OUTDIR}/plots/deletion_size_distribution_large.pdf",
-            f"{OUTDIR}/plots/deletion_rainfall.pdf",
+            f"{OUTDIR}/plots/deletion_rainfall_left_breakpoint.pdf",
+            f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
+            f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
+            f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
             f"{OUTDIR}/plots/affected_feature_support.pdf",
             f"{OUTDIR}/plots/affected_feature_counts.pdf",
             f"{OUTDIR}/plots/affected_feature_proportions.pdf",
@@ -1005,7 +1023,10 @@ rule make_deliverables:
         exact_mtpm=f"{OUTDIR}/matrices/exact_deletion_support_per_million_mt_reads.tsv",
         affected_mtpm=f"{OUTDIR}/matrices/affected_feature_support_per_million_mt_reads.tsv",
         burden_plot=f"{OUTDIR}/plots/deletion_burden_by_sample.pdf",
-        rainfall=f"{OUTDIR}/plots/deletion_rainfall.pdf",
+        rainfall_left=f"{OUTDIR}/plots/deletion_rainfall_left_breakpoint.pdf",
+        rainfall_right=f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
+        rainfall_midpoint=f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
+        breakpoint_pair_map=f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
         affected_support=f"{OUTDIR}/plots/affected_feature_support.pdf",
         recurrence=f"{OUTDIR}/plots/exact_deletion_recurrence.pdf",
     output:
