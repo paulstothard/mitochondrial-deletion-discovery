@@ -804,6 +804,8 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
         "deletion_rainfall_right_breakpoint",
         "deletion_rainfall_midpoint",
         "breakpoint_pair_support_map",
+        "pooled_breakpoint_support_density",
+        "pooled_breakpoint_support_density_capped",
     } and sidecar_svgs:
         previews = []
         for sidecar_svg in sidecar_svgs:
@@ -1573,8 +1575,8 @@ def main() -> None:
         "deletion_rainfall_right_breakpoint.pdf": ("Deletion Rainfall: Right Breakpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same displayed exact deletions and support scale as the left-breakpoint rainfall plot, but places each point by canonical right breakpoint. Comparing left and right views helps identify fixed-endpoint patterns."),
         "deletion_rainfall_midpoint.pdf": ("Deletion Rainfall: Circular Midpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the circular midpoint of the deleted interval, so origin-spanning deletions are positioned by the midpoint along the deleted circular path rather than by a simple linear average."),
         "breakpoint_pair_support_map.pdf": ("Breakpoint-Pair Support Map", f"{rainfall_display_definition(config, burden)} Each point is one unique left/right breakpoint pair after applying the same display threshold and optional per-group cap as the rainfall plots. The x-axis is the left breakpoint; the y-axis is the right breakpoint, with origin-crossing right breakpoints shown above the horizontal genome-end line."),
-        "pooled_breakpoint_support_density.pdf": ("Pooled Breakpoint Support Density", f"{rainfall_display_definition(config, burden)} This summarizes where deletion endpoints accumulate along the mitochondrial genome after pooling left and right breakpoints. Stacked bars show binned support split by left versus right endpoint; the filled curve is circular-smoothed total endpoint support."),
-        "pooled_breakpoint_support_density_capped.pdf": ("Pooled Breakpoint Support Density: Capped Scale", f"{rainfall_display_definition(config, burden)} This is the same endpoint-density view with the y-axis capped so smaller secondary breakpoint hotspots remain visible when one region dominates."),
+        "pooled_breakpoint_support_density.pdf": ("Pooled Breakpoint Support Density", f"{rainfall_display_definition(config, burden)} This group-split view summarizes where deletion endpoints accumulate along the mitochondrial genome after pooling left and right breakpoints within each group. Stacked bars show binned support split by left versus right endpoint; the line is circular-smoothed total endpoint support."),
+        "pooled_breakpoint_support_density_capped.pdf": ("Pooled Breakpoint Support Density: Capped Scale", f"{rainfall_display_definition(config, burden)} This is the same group-split endpoint-density view with the y-axis capped so smaller secondary breakpoint hotspots remain visible when one region dominates."),
         "affected_feature_support.pdf": ("Affected Features: Normalized Abundance", f"This bar chart compares affected-feature categories after normalizing each sample {normalization_phrase(burden)}. Use this as the main abundance view when groups have different sequencing depth or mitochondrial read recovery."),
         "affected_feature_counts.pdf": ("Affected Features: Raw Supporting Reads", "This uses the same affected-feature categories as the normalized plot, but shows raw supporting read counts. It can look similar when sample depths are similar; disagreement between this and the normalized plot suggests depth or recovery differences."),
         "affected_feature_proportions.pdf": ("Affected Features: Within-Group Percent", "This uses the same affected-feature categories again, but rescales each group to 100 percent. It asks whether the mix of affected features changes, independent of total deletion burden."),

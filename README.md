@@ -215,7 +215,7 @@ Main plots include:
 - deletion size distributions, including log-y and size-restricted views;
 - deletion rainfall plots shown as full-size per-group figures by left breakpoint, right breakpoint, and circular deleted-interval midpoint;
 - breakpoint-pair support maps showing which deletion starts pair with which deletion ends;
-- pooled breakpoint support-density plots showing where deletion endpoints accumulate, with binned support split into left and right breakpoint bars behind a circular-smoothed total-support curve;
+- group-split pooled breakpoint support-density plots showing where deletion endpoints accumulate, with binned support split into left and right breakpoint bars behind a circular-smoothed total-support curve;
 - affected-feature normalized support and within-group proportions;
 - collapsed feature-impact classes;
 - per-gene affected burden;

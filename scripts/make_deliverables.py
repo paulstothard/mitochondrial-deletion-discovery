@@ -81,8 +81,8 @@ PLOT_EXPLANATIONS = {
     "deletion_rainfall_right_breakpoint.pdf": "Location-size plot of post-remap deletion calls placed by canonical right breakpoint.",
     "deletion_rainfall_midpoint.pdf": "Location-size plot of post-remap deletion calls placed by circular deleted-interval midpoint.",
     "breakpoint_pair_support_map.pdf": "Breakpoint-pair support map showing which deletion starts pair with which deletion ends.",
-    "pooled_breakpoint_support_density.pdf": "Pooled breakpoint endpoint support density using stacked binned left/right endpoint bars and a circular-smoothed pooled support curve.",
-    "pooled_breakpoint_support_density_capped.pdf": "Pooled breakpoint endpoint support density with a capped y-axis to reveal secondary endpoint hotspots.",
+    "pooled_breakpoint_support_density.pdf": "Group-split pooled breakpoint endpoint support density using stacked binned left/right endpoint bars and a circular-smoothed pooled support curve.",
+    "pooled_breakpoint_support_density_capped.pdf": "Group-split pooled breakpoint endpoint support density with a capped y-axis to reveal secondary endpoint hotspots.",
     "affected_feature_support.pdf": "Affected-feature categories compared by normalized support.",
     "affected_feature_counts.pdf": "Affected-feature categories compared by read support counts.",
     "affected_feature_proportions.pdf": "Within-group composition of affected-feature categories.",
@@ -171,6 +171,8 @@ def main() -> None:
             "deletion_rainfall_right_breakpoint.pdf",
             "deletion_rainfall_midpoint.pdf",
             "breakpoint_pair_support_map.pdf",
+            "pooled_breakpoint_support_density.pdf",
+            "pooled_breakpoint_support_density_capped.pdf",
         }:
             for sidecar in sorted((root / "plots").glob(f"{Path(plot).stem}__*.pdf")):
                 copy_if_exists(sidecar, out / "plots" / sidecar.name, copied)

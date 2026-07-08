@@ -1120,7 +1120,7 @@ def pooled_endpoint_density(display_grouped: pd.DataFrame, genome_length: int, b
     return out
 
 
-def endpoint_density_hotspots(density: pd.DataFrame, genome_length: int, max_labels: int = 8) -> list[dict[str, float]]:
+def endpoint_density_hotspots(density: pd.DataFrame, genome_length: int, max_labels: int = 10) -> list[dict[str, float]]:
     if density.empty or "smoothed_summed_support" not in density.columns:
         return []
     work = density.copy()
@@ -1132,7 +1132,7 @@ def endpoint_density_hotspots(density: pd.DataFrame, genome_length: int, max_lab
     candidates = work[(y >= left) & (y >= right) & (work["smoothed_summed_support"] > 0)].copy()
     candidates = candidates.sort_values("smoothed_summed_support", ascending=False)
     selected: list[dict[str, float]] = []
-    min_spacing = max(250, int(genome_length * 0.04))
+    min_spacing = max(250, int(genome_length * 0.015))
     for _, row in candidates.iterrows():
         coord = float(row["bin_midpoint"])
         if any(min(abs(coord - item["coord"]), genome_length - abs(coord - item["coord"])) < min_spacing for item in selected):
@@ -1143,48 +1143,73 @@ def endpoint_density_hotspots(density: pd.DataFrame, genome_length: int, max_lab
     return selected
 
 
-def endpoint_density_plot(
+def endpoint_label_levels(hotspots: list[dict[str, float]], genome_length: int, max_levels: int = 4) -> list[tuple[dict[str, float], int]]:
+    if not hotspots:
+        return []
+    min_spacing = max(850, int(genome_length * 0.05))
+    last_coord_by_level = [-float("inf")] * max_levels
+    assigned: list[tuple[dict[str, float], int]] = []
+    for hotspot in sorted(hotspots, key=lambda item: item["coord"]):
+        coord = float(hotspot["coord"])
+        chosen = None
+        for level in range(max_levels):
+            if coord - last_coord_by_level[level] >= min_spacing:
+                chosen = level
+                break
+        if chosen is None:
+            chosen = min(range(max_levels), key=lambda level: last_coord_by_level[level])
+        last_coord_by_level[chosen] = coord
+        assigned.append((hotspot, chosen))
+    return assigned
+
+
+def endpoint_density_figure(
     display_grouped: pd.DataFrame,
     features: pd.DataFrame,
     config: dict,
     mt_length: int,
-    path: str,
     title: str,
     support_label: str,
     bin_size: int = 50,
     smooth_bins: int = 7,
     capped: bool = False,
-) -> None:
-    if display_grouped.empty:
-        empty(path, title, "No exact deletions meet the endpoint-density display threshold")
-        return
+) -> plt.Figure:
     plot_features = location_features(features, config)
     genome_length = location_genome_length(mt_length, plot_features, display_grouped)
-    density = pooled_endpoint_density(display_grouped, genome_length, bin_size, smooth_bins)
-    if density.empty:
-        empty(path, title, "No breakpoint endpoints are available for this plot")
-        return
     fig = plt.figure(figsize=(15.2, 6.6), constrained_layout=True)
     grid = fig.add_gridspec(2, 1, height_ratios=[4.65, 1.05], hspace=0.04)
     ax = fig.add_subplot(grid[0, 0])
     feature_ax = fig.add_subplot(grid[1, 0], sharex=ax)
+    if display_grouped.empty:
+        ax.text(0.5, 0.5, "No exact deletions meet the endpoint-density display threshold", ha="center", va="center", wrap=True, transform=ax.transAxes)
+        ax.set_title(title, pad=15)
+        draw_location_feature_track(feature_ax, plot_features, genome_length, x_min=1, x_max=genome_length)
+        feature_ax.set_xlabel("Mitochondrial genome coordinate (bp)")
+        return fig
+    density = pooled_endpoint_density(display_grouped, genome_length, bin_size, smooth_bins)
+    if density.empty:
+        ax.text(0.5, 0.5, "No breakpoint endpoints are available for this plot", ha="center", va="center", wrap=True, transform=ax.transAxes)
+        ax.set_title(title, pad=15)
+        draw_location_feature_track(feature_ax, plot_features, genome_length, x_min=1, x_max=genome_length)
+        feature_ax.set_xlabel("Mitochondrial genome coordinate (bp)")
+        return fig
     x = density["bin_midpoint"].to_numpy(dtype=float)
     raw_left = density["left_support"].to_numpy(dtype=float)
     raw_right = density["right_support"].to_numpy(dtype=float)
     raw = density["summed_support"].to_numpy(dtype=float)
     y = density["smoothed_summed_support"].to_numpy(dtype=float)
     width = max(1, int(bin_size)) * 0.88
-    ax.bar(x, raw_left, width=width, color="#5b7db2", alpha=0.28, edgecolor="none", label=f"left endpoints, {int(bin_size)} bp bins", zorder=1)
-    ax.bar(x, raw_right, width=width, bottom=raw_left, color="#d07a4f", alpha=0.28, edgecolor="none", label=f"right endpoints, {int(bin_size)} bp bins", zorder=1)
-    ax.fill_between(x, y, color="#2a6f97", alpha=0.28, linewidth=0, label="circular-smoothed support", zorder=2)
-    ax.plot(x, y, color="#1d5f85", linewidth=1.35, zorder=3)
+    ax.bar(x, raw_left, width=width, color="#4E79A7", alpha=0.42, edgecolor="none", label=f"left endpoints, {int(bin_size)} bp bins", zorder=1)
+    ax.bar(x, raw_right, width=width, bottom=raw_left, color="#F28E2B", alpha=0.42, edgecolor="none", label=f"right endpoints, {int(bin_size)} bp bins", zorder=1)
+    ax.fill_between(x, y, color="#111111", alpha=0.08, linewidth=0, zorder=2)
+    ax.plot(x, y, color="#222222", linewidth=1.6, label="circular-smoothed pooled support", zorder=3)
     full_ymax = max(1.0, float(np.nanmax(np.r_[raw, y])))
     if capped:
         nonzero = np.r_[raw[raw > 0], y[y > 0]]
         cap = float(np.nanpercentile(nonzero, 96)) if len(nonzero) else full_ymax
         ymax = max(1.0, min(full_ymax, cap))
         ax.set_ylim(0, ymax * 1.12)
-        ax.text(0.995, 0.90, f"y-axis capped at {support_tick_label(ymax)} to show secondary hotspots", ha="right", va="top", transform=ax.transAxes, fontsize=8, color="#374151")
+        ax.text(0.01, 0.96, f"y-axis capped at {support_tick_label(ymax)} to show secondary hotspots", ha="left", va="top", transform=ax.transAxes, fontsize=8, color="#374151")
     else:
         ax.set_ylim(0, full_ymax * 1.12)
     ax.set_xlim(1, genome_length)
@@ -1204,7 +1229,7 @@ def endpoint_density_plot(
     ax.grid(axis="both", color="#d9dee7", linewidth=0.65, alpha=0.55)
     ax.legend(loc="upper right", frameon=True, fontsize=8)
     label_ceiling = ax.get_ylim()[1]
-    for hotspot in endpoint_density_hotspots(density, genome_length):
+    for hotspot, label_level in endpoint_label_levels(endpoint_density_hotspots(density, genome_length), genome_length):
         coord = hotspot["coord"]
         height = min(hotspot["height"], label_ceiling * 0.88)
         half_window = max(1, int(smooth_bins) * int(bin_size) / 2)
@@ -1213,7 +1238,7 @@ def endpoint_density_plot(
         ax.annotate(
             f"{start:,}-{end:,} bp",
             xy=(coord, height),
-            xytext=(0, 12),
+            xytext=(0, 12 + label_level * 12),
             textcoords="offset points",
             ha="center",
             va="bottom",
@@ -1224,7 +1249,45 @@ def endpoint_density_plot(
         )
     draw_location_feature_track(feature_ax, plot_features, genome_length, x_min=1, x_max=genome_length)
     feature_ax.set_xlabel("Mitochondrial genome coordinate (bp)")
-    save(fig, path)
+    return fig
+
+
+def endpoint_density_pages(
+    display_grouped: pd.DataFrame,
+    groups: list[str],
+    features: pd.DataFrame,
+    config: dict,
+    mt_length: int,
+    path: str,
+    title_prefix: str,
+    support_label: str,
+    bin_size: int = 50,
+    smooth_bins: int = 7,
+    capped: bool = False,
+) -> None:
+    clear_location_sidecars(path)
+    if display_grouped.empty:
+        empty(path, title_prefix, "No exact deletions meet the endpoint-density display threshold")
+        return
+    figures: list[plt.Figure] = []
+    for group in groups:
+        sub = display_grouped[display_grouped["_plot_group"] == group].copy()
+        fig = endpoint_density_figure(
+            sub,
+            features,
+            config,
+            mt_length,
+            f"{title_prefix}: {group}",
+            support_label,
+            bin_size=bin_size,
+            smooth_bins=smooth_bins,
+            capped=capped,
+        )
+        save_location_sidecar(fig, path, group)
+        figures.append(fig)
+    write_location_plot_pages(figures, path)
+    for fig in figures:
+        plt.close(fig)
 
 
 def write_location_plot_pages(figures: list[plt.Figure], path: str) -> None:
@@ -1556,8 +1619,8 @@ def location_plots(
     location_rainfall(display_grouped, groups, features, config, mt_length, out_right, "Deletion Rainfall By Canonical Right Breakpoint", "right_breakpoint", "Canonical right breakpoint on mitochondrial genome (bp)", support_label)
     location_rainfall(display_grouped, groups, features, config, mt_length, out_midpoint, "Deletion Rainfall By Circular Deleted-Interval Midpoint", "circular_midpoint", "Circular midpoint of deleted interval on mitochondrial genome (bp)", support_label)
     breakpoint_pair_support_map(display_grouped, groups, features, config, mt_length, out_pair_map, support_label)
-    endpoint_density_plot(display_grouped, features, config, mt_length, out_endpoint_density, "Pooled Breakpoint Support Density", support_label, bin_size=endpoint_density_bin_size, smooth_bins=endpoint_density_smooth_bins, capped=False)
-    endpoint_density_plot(display_grouped, features, config, mt_length, out_endpoint_density_capped, "Pooled Breakpoint Support Density, Capped Scale", support_label, bin_size=endpoint_density_bin_size, smooth_bins=endpoint_density_smooth_bins, capped=True)
+    endpoint_density_pages(display_grouped, groups, features, config, mt_length, out_endpoint_density, "Pooled Breakpoint Support Density", support_label, bin_size=endpoint_density_bin_size, smooth_bins=endpoint_density_smooth_bins, capped=False)
+    endpoint_density_pages(display_grouped, groups, features, config, mt_length, out_endpoint_density_capped, "Pooled Breakpoint Support Density, Capped Scale", support_label, bin_size=endpoint_density_bin_size, smooth_bins=endpoint_density_smooth_bins, capped=True)
 
 
 def category_bar(matrix: pd.DataFrame, samples: pd.DataFrame, group_col: str, path: str, title: str, ylabel: str, top_n: int = 14, proportional: bool = False) -> None:
