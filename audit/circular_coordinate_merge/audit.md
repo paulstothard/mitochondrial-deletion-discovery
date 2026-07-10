@@ -1,5 +1,12 @@
 # Circular Coordinate And Merge Audit
 
+> Historical audit note: this audit was generated for the pre-2.0 workflow, which
+> collapsed reciprocal directions by choosing the shorter circular arc. Its
+> coordinate round-trip and off-by-one checks remain useful, but its wrapping
+> conclusions do not establish the alignment-directed deleted arc. Schema
+> `2.0-alignment-directed-arcs` now preserves query-order/strand direction, keeps
+> reciprocal models separate, and reports same-read direction conflicts explicitly.
+
 Dataset used for concrete examples: `human_common_deletion`. This is a targeted audit of coordinate conversion and merge behavior, not a full deletion report.
 
 ## Code Paths Checked

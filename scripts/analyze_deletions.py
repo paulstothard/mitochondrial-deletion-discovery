@@ -464,6 +464,7 @@ def main() -> None:
     parser.add_argument("--clusters", required=True)
     parser.add_argument("--id-map", required=True)
     parser.add_argument("--all-reads", required=True)
+    parser.add_argument("--ambiguous-reads", required=True)
     parser.add_argument("--config", required=True)
     parser.add_argument("--group-column", default="")
     parser.add_argument("--group-columns", default="")
@@ -492,6 +493,7 @@ def main() -> None:
     clusters = pd.read_csv(args.clusters, sep="\t")
     id_map = pd.read_csv(args.id_map, sep="\t")
     all_reads = pd.read_csv(args.all_reads, sep="\t")
+    ambiguous_reads = pd.read_csv(args.ambiguous_reads, sep="\t")
     if "exact_deletion_id" not in clusters.columns and "junction_id" in clusters.columns:
         clusters["exact_deletion_id"] = clusters["junction_id"]
     if "exact_deletion_id" not in all_reads.columns and "junction_id" in all_reads.columns:
@@ -603,6 +605,19 @@ def main() -> None:
     pre_filter_counts = annotated_reads_before_transcript_filter.groupby("sample").size()
     expected_counts = annotated_reads_before_transcript_filter.loc[transcript_mask].groupby("sample").size()
     candidate_counts = annotated_reads_before_transcript_filter.loc[~transcript_mask].groupby("sample").size()
+    ambiguous_record_counts = ambiguous_reads.groupby("sample").size() if not ambiguous_reads.empty and "sample" in ambiguous_reads.columns else pd.Series(dtype=int)
+    ambiguous_read_counts = (
+        ambiguous_reads.drop_duplicates(["sample", "read_id"]).groupby("sample").size()
+        if not ambiguous_reads.empty and {"sample", "read_id"}.issubset(ambiguous_reads.columns)
+        else pd.Series(dtype=int)
+    )
+    secondary_mask = pd.Series(False, index=annotated_reads.index)
+    for col in ["left_is_secondary", "right_is_secondary"]:
+        if col in annotated_reads.columns:
+            secondary_mask |= annotated_reads[col].astype(str).str.lower().eq("yes")
+    secondary_counts = annotated_reads.loc[secondary_mask].groupby("sample").size() if not annotated_reads.empty else pd.Series(dtype=int)
+    min_mapq = pd.to_numeric(annotated_reads.get("min_mapq", pd.Series(index=annotated_reads.index, dtype=float)), errors="coerce")
+    mapq_zero_counts = annotated_reads.loc[min_mapq.fillna(1).le(0)].groupby("sample").size() if not annotated_reads.empty else pd.Series(dtype=int)
 
     qc = samples[
         [
@@ -614,10 +629,26 @@ def main() -> None:
     qc["clustered_split_read_alignments_before_transcript_filter"] = qc["sample"].map(pre_filter_counts).fillna(0).astype(int)
     qc["expected_transcript_compatible_split_reads"] = qc["sample"].map(expected_counts).fillna(0).astype(int)
     qc["candidate_deletion_split_reads_before_transcript_filter"] = qc["sample"].map(candidate_counts).fillna(0).astype(int)
+    qc["ambiguous_direction_records_excluded"] = qc["sample"].map(ambiguous_record_counts).fillna(0).astype(int)
+    qc["ambiguous_direction_reads_excluded"] = qc["sample"].map(ambiguous_read_counts).fillna(0).astype(int)
+    qc["primary_calls_using_secondary_alignments"] = qc["sample"].map(secondary_counts).fillna(0).astype(int)
+    qc["primary_calls_with_min_mapq_zero"] = qc["sample"].map(mapq_zero_counts).fillna(0).astype(int)
     qc["expected_transcript_filter_applied"] = exclude_expected
     qc["deletion_supporting_reads"] = burden["deletion_supporting_reads"]
     qc["unique_exact_deletions"] = burden["unique_exact_deletions"]
-    qc["warning_flags"] = np.where(qc["reads_passed_to_minimap2"] == 0, "no_mitochondrial_evidence_reads", "")
+    def warning_flags(row: pd.Series) -> str:
+        flags = []
+        if row["reads_passed_to_minimap2"] == 0:
+            flags.append("no_mitochondrial_evidence_reads")
+        if row["ambiguous_direction_reads_excluded"] > 0:
+            flags.append("ambiguous_direction_evidence_excluded")
+        if row["primary_calls_using_secondary_alignments"] > 0:
+            flags.append("secondary_alignments_in_primary_calls")
+        if row["primary_calls_with_min_mapq_zero"] > 0:
+            flags.append("mapq_zero_alignments_in_primary_calls")
+        return ";".join(flags)
+
+    qc["warning_flags"] = qc.apply(warning_flags, axis=1)
 
     outputs = {
         args.out_exact_raw: exact_raw,

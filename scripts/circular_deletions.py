@@ -24,6 +24,12 @@ def circular_distance(start: int, end: int, mt_length: int) -> int:
     return mt_length - start + end - 1
 
 
+def circular_position_distance(a: int, b: int, mt_length: int) -> int:
+    """Shortest distance between two positions without assigning a deleted arc."""
+    delta = abs(int(a) - int(b))
+    return min(delta, int(mt_length) - delta)
+
+
 def interval_pieces(left: int, right: int, mt_length: int) -> list[tuple[int, int]]:
     """Return 1-based closed intervals deleted between breakpoints left -> right."""
     left = int(left)
@@ -43,7 +49,7 @@ def interval_length(pieces: Iterable[tuple[int, int]]) -> int:
 
 
 def canonical_breakpoints(left: int, right: int, mt_length: int) -> dict:
-    """Choose the shorter circular deleted interval for a breakpoint pair."""
+    """Legacy helper that chooses the shorter arc for historical reproducibility."""
     left = int(left)
     right = int(right)
     forward_size = circular_distance(left, right, mt_length)
@@ -65,8 +71,32 @@ def canonical_breakpoints(left: int, right: int, mt_length: int) -> dict:
     }
 
 
+def directed_breakpoints(left: int, right: int, mt_length: int) -> dict:
+    """Describe the deleted arc implied by the directed retained adjacency left -> right."""
+    left = int(left)
+    right = int(right)
+    size = circular_distance(left, right, mt_length)
+    complement_size = circular_distance(right, left, mt_length)
+    pieces = interval_pieces(left, right, mt_length)
+    return {
+        "left_breakpoint": left,
+        "right_breakpoint": right,
+        "deleted_size": size,
+        "wraps_origin": "yes" if right <= left else "no",
+        "deleted_interval": ";".join(f"{start}-{end}" for start, end in pieces),
+        "complement_deleted_size": complement_size,
+        "complement_wraps_origin": "yes" if left <= right else "no",
+        "arc_assignment_method": "alignment_directed",
+    }
+
+
 def deletion_id(left: int, right: int, deleted_size: int) -> str:
     return f"mtDel_{int(left):05d}_{int(right):05d}_{int(deleted_size):05d}"
+
+
+def breakpoint_pair_id(left: int, right: int) -> str:
+    first, second = sorted((int(left), int(right)))
+    return f"mtPair_{first:05d}_{second:05d}"
 
 
 def feature_name(row: pd.Series) -> str:

@@ -20,14 +20,27 @@ READ_LIST_COLUMNS = [
     "read_id",
     "exact_deletion_id",
     "junction_id",
+    "breakpoint_pair_id",
     "left_breakpoint",
     "right_breakpoint",
     "deleted_size",
+    "wraps_origin",
+    "complement_deleted_size",
+    "arc_assignment_method",
+    "direction_status",
+    "rotation_agreement",
     "read_left_breakpoint",
     "read_right_breakpoint",
     "read_deleted_size",
+    "directed_left_breakpoint",
+    "directed_right_breakpoint",
+    "directed_deleted_size",
+    "reported_left_breakpoint",
+    "reported_right_breakpoint",
     "deleted_interval",
     "rotation_name",
+    "rotation_start",
+    "strand",
     "source",
     "left_anchor_length",
     "right_anchor_length",
@@ -37,6 +50,22 @@ READ_LIST_COLUMNS = [
     "min_mapq",
     "query_overlap_bp",
     "query_gap_bp",
+    "query_first_start",
+    "query_first_end",
+    "query_second_start",
+    "query_second_end",
+    "left_cigar",
+    "right_cigar",
+    "left_is_primary",
+    "right_is_primary",
+    "left_is_secondary",
+    "right_is_secondary",
+    "left_is_supplementary",
+    "right_is_supplementary",
+    "left_alignment_score",
+    "right_alignment_score",
+    "left_edit_distance",
+    "right_edit_distance",
 ]
 
 CONFIGURED_SEARCH_READ_LIST_COLUMNS = [
@@ -872,7 +901,7 @@ def reference_section(config: dict, features: pd.DataFrame) -> str:
         ("Extracted mtDNA FASTA SHA-256", sha256_file(mt_path)),
         ("Mitochondrial length", ref.get("mt_length", "")),
         ("Mitochondrial contig names", ", ".join(ref.get("mt_contig_names", []))),
-        ("Circular treatment", "normal and rotated mitochondrial references; canonical circular deletion coordinates"),
+        ("Circular treatment", "normal and rotated mitochondrial references; alignment-directed circular deletion coordinates"),
     ]
     rows = [(field, value) for field, value in rows if value != ""]
     table = pd.DataFrame(rows, columns=["Field", "Value"])
@@ -896,6 +925,117 @@ def reference_section(config: dict, features: pd.DataFrame) -> str:
     )
 
 
+def first_pass_selection_explanation(config: dict) -> str:
+    mapping = config.get("mapping", {}) or {}
+    mode = str(mapping.get("first_pass_read_selection", "whole_genome_mt_best"))
+    if mode == "whole_genome_mt_best":
+        return "Reads were competitively aligned with nuclear and mitochondrial references present together; reads with selected mitochondrial best evidence were retained for mitochondrial remapping."
+    if mode == "nuclear_unmapped_reads":
+        return "Reads not mapped to the nuclear-only reference were retained for mitochondrial remapping. This sensitivity mode can lose mitochondrial reads with NUMT-like nuclear alignments."
+    return "Reads with configured mitochondrial evidence in the first-pass full-genome alignment were retained for mitochondrial remapping."
+
+
+def assay_limitations(config: dict) -> str:
+    dataset = config.get("dataset", {}) or {}
+    technology = str(dataset.get("read_technology", "unknown")).strip().lower()
+    molecule = str(dataset.get("molecule_type", "unknown")).strip().lower()
+    parts = []
+    if technology == "nanopore":
+        parts.append(
+            "Nanopore reads can provide long junction anchors, but base errors, homopolymers, supplementary or alternative placements, chimeric reads, ligation artifacts, and concatemers can affect breakpoint evidence."
+        )
+    elif technology == "illumina":
+        parts.append(
+            "Illumina split-read anchors are shorter and can be difficult to place uniquely around repeats or NUMTs. The current caller requires breakpoint-spanning split evidence and does not call a deletion from mate distance alone."
+        )
+    else:
+        parts.append("Read technology is not specified, so technology-specific sensitivity and artifact assumptions cannot be selected reliably.")
+    if molecule == "rna":
+        parts.append(
+            "RNA-derived split alignments may reflect transcript processing, reverse transcription, or template switching. RNA read support does not directly measure mtDNA heteroplasmy or genome copy fraction."
+        )
+    elif molecule == "dna":
+        parts.append(
+            "DNA-derived reads are closer to genome-molecule evidence but can still reflect NUMTs, PCR or ligation chimeras, mapping ambiguity, and sampling. Local split-support fraction is not automatically a heteroplasmy estimate."
+        )
+    else:
+        parts.append("Molecule type is not specified; DNA- versus RNA-specific biological interpretation is therefore limited.")
+    return " ".join(parts)
+
+
+def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: pd.DataFrame, qc: pd.DataFrame) -> str:
+    dataset = config.get("dataset", {}) or {}
+    mt = config.get("mt_realign", {}) or {}
+    junctions = config.get("junctions", {}) or {}
+    warnings = []
+    if junctions.get("arc_assignment", "alignment_directed") == "legacy_shortest_arc":
+        warnings.append("Legacy shortest-arc mode is active. Deleted intervals are not alignment-directed in this result.")
+    if bool(mt.get("minimap2_include_secondary", False)):
+        warnings.append("Secondary alignments are eligible for primary calls, increasing alternative-placement sensitivity.")
+    if int(mt.get("minimap2_min_mapq", 0) or 0) <= 0:
+        warnings.append("MAPQ 0 alignments pass the configured remap filter; inspect primary_calls_with_min_mapq_zero in QC.")
+    if str(dataset.get("read_technology", "unknown")).lower() == "unknown":
+        warnings.append("Read technology is unknown.")
+    if str(dataset.get("molecule_type", "unknown")).lower() == "unknown":
+        warnings.append("Molecule type is unknown; DNA/RNA-specific interpretation is limited.")
+    if not ambiguous_reads.empty:
+        warnings.append(f"{len(ambiguous_reads):,} reciprocal-direction evidence rows were excluded from primary summaries.")
+    if not clusters.empty and "rotation_agreement" in clusters.columns:
+        single = int(clusters["rotation_agreement"].astype(str).eq("single_rotation").sum())
+        if single:
+            warnings.append(f"{single:,} exact deletions have support recorded from only one reference rotation.")
+    warning_body = ""
+    if warnings:
+        warning_body = '<div class="notice"><strong>Interpretation warnings:</strong><ul>' + "".join(f"<li>{html.escape(item)}</li>" for item in warnings) + "</ul></div>"
+    assumptions = pd.DataFrame(
+        [
+            ("Directed arc", "After strand normalization, query segment order defines retained adjacency L -> R. The inferred deleted interval is the forward circular arc from retained base L to retained base R; the complementary arc is a different hypothesis."),
+            ("Coordinate convention", "Breakpoints are retained flanking bases. Deleted size excludes both breakpoint bases."),
+            ("Alignment chain", "Accepted split segments are assumed to represent one physical read adjacency rather than an alternative placement or library artifact."),
+            ("Reference", "The configured mitochondrial reference, length, contig identity, and coordinate origin are assumed appropriate for the samples."),
+            ("Mapping uniqueness", "Retained evidence is assumed not to be better explained by NUMTs, repeats, or equivalent secondary placements."),
+            ("Clustering", "Directed breakpoints within the configured circular slop are assumed to represent the same exact coordinate-level event."),
+            ("Read support", "Support measures detected split-alignment evidence; it is not automatically molecule frequency, heteroplasmy, viability, or proof of a biological deletion."),
+            ("Detection limit", "Failure to detect a junction is not evidence that it is absent; sensitivity depends on coverage, molecule abundance, read length, mapping, and filters."),
+        ],
+        columns=["Assumption", "Meaning"],
+    )
+    arc_example = (
+        "<h3>How The Deleted Arc Is Assigned</h3>"
+        "<p>If a strand-normalized read contains reference sequence ending at retained base L followed by sequence beginning at retained base R, it supports adjacency <code>L|R</code>. "
+        "The inferred deleted bases are the forward circular interval between L and R. A read supporting <code>R|L</code> represents the complementary deletion model. "
+        "Reference rotation changes coordinate origin but must not reverse this directed adjacency. Conflicting directions are retained as ambiguous evidence rather than resolved by interval length.</p>"
+    )
+    ambiguous_body = ""
+    if not ambiguous_reads.empty:
+        audit_columns = [
+            col
+            for col in [
+                "sample",
+                "read_id",
+                "breakpoint_pair_id",
+                "left_breakpoint",
+                "right_breakpoint",
+                "deleted_size",
+                "rotation_name",
+                "strand",
+                "direction_status",
+                "min_mapq",
+            ]
+            if col in ambiguous_reads.columns
+        ]
+        ambiguous_body = (
+            "<h3>Excluded Ambiguous Direction Evidence</h3>"
+            "<p>These rows support conflicting reciprocal directions for the same read and unordered breakpoint pair. They are retained for audit but excluded from primary summaries under the configured policy.</p>"
+            + table_html(ambiguous_reads[audit_columns], rows=200)
+        )
+    return section(
+        "Analysis Assumptions And Limitations",
+        assay_limitations(config),
+        warning_body + arc_example + "<h3>Core Assumptions</h3>" + table_html(assumptions, rows=20) + ambiguous_body,
+    )
+
+
 def method_section(config: dict, burden: pd.DataFrame) -> str:
     mt = config.get("mt_realign", {}) or {}
     mapping = config.get("mapping", {}) or {}
@@ -904,6 +1044,10 @@ def method_section(config: dict, burden: pd.DataFrame) -> str:
     analysis = config.get("analysis", {}) or {}
     settings = pd.DataFrame(
         [
+            ("Result schema version", config.get("project", {}).get("result_schema_version", "unknown")),
+            ("Read technology", config.get("dataset", {}).get("read_technology", "unknown")),
+            ("Molecule type", config.get("dataset", {}).get("molecule_type", "unknown")),
+            ("Library strategy", config.get("dataset", {}).get("library_strategy", "unknown")),
             ("Sample source", config.get("samples", {}).get("source", "")),
             ("Read preparation", config.get("downloads", {}).get("method", "")),
             (
@@ -925,8 +1069,18 @@ def method_section(config: dict, burden: pd.DataFrame) -> str:
             ("Mitochondrial remap preset", mt.get("minimap2_preset", "sr")),
             ("Mitochondrial remap index options", mt.get("minimap2_index_extra", "")),
             ("Mitochondrial remap alignment options", mt.get("minimap2_extra", "")),
-            ("Circular-coordinate handling", "normal plus rotated mitochondrial references, then canonical coordinate consolidation"),
+            ("Circular-coordinate handling", "normal plus rotated mitochondrial references, converted to standard coordinates while preserving directed junctions"),
             ("Reference rotations", ", ".join(str(item.get("name", "")) for item in mt.get("rotations", []))),
+            ("Arc assignment", junctions.get("arc_assignment", "alignment_directed")),
+            ("Alignment pairing mode", junctions.get("alignment_pairing_mode", "adjacent")),
+            ("Ambiguous direction policy", junctions.get("ambiguous_direction_policy", "exclude")),
+            ("Include secondary remap alignments", mt.get("minimap2_include_secondary", False)),
+            ("Include supplementary remap alignments", mt.get("minimap2_include_supplementary", True)),
+            ("Minimum remap MAPQ", mt.get("minimap2_min_mapq", 0)),
+            ("Minimum segment aligned fraction", mt.get("min_segment_aligned_fraction", "")),
+            ("Maximum soft-clip fraction", mt.get("max_soft_clip_fraction", "")),
+            ("Maximum query overlap", mt.get("max_query_overlap_bp", "")),
+            ("Maximum query gap", mt.get("max_query_gap_bp", "")),
             ("Minimum deletion anchor length", junctions.get("min_anchor_length", "")),
             ("Minimum deletion size", junctions.get("min_deletion_size", "")),
             ("Maximum deletion size", junctions.get("max_deletion_size", "")),
@@ -944,10 +1098,11 @@ def method_section(config: dict, burden: pd.DataFrame) -> str:
     )
     text = (
         "The workflow resolves sample metadata, prepares FASTQ inputs, applies read QC/trimming when configured, and uses a first-pass genome alignment to select mitochondrial-evidence reads for remapping. "
-        "The default first-pass strategy is competitive whole-genome assignment: reads are aligned with the nuclear genome and mitochondrial genome present together, then reads whose best or selected evidence is mitochondrial are retained. "
-        "This is different from a nuclear-only exclusion check and is intended to reduce loss of true mitochondrial reads that also have weaker nuclear NUMT-like alignments. "
+        + first_pass_selection_explanation(config)
+        + " "
         "The retained reads are then remapped to mitochondrial references with minimap2 using normal and rotated coordinate systems so deletion breakpoints near the artificial linear boundary can be recovered. "
-        "Split alignments are converted back to the original mitochondrial coordinate system, consolidated across rotations, filtered, annotated against mitochondrial features, and summarized in group comparisons. "
+        "Split alignments are converted back to the original mitochondrial coordinate system while preserving query-order and strand-directed adjacency. Reciprocal directions remain distinct, and direction conflicts are handled by the configured ambiguity policy. "
+        "Directed calls are consolidated across rotations, filtered, annotated against mitochondrial features, and summarized in group comparisons. "
         "Configured adjacent mitochondrial transcript pairs are labeled as transcript-compatible; when the exclusion setting is enabled, those reads are removed from deletion summaries but remain visible in QC counts. "
         "Configured deletion targets are used only for labeling and targeted summaries. They can come from explicit known-deletion entries or from coordinate-bearing configured sequence searches. "
         "Configured sequence searches are supplementary literal-read checks for named breakpoint sequences in the retained remap-input FASTQs; they do not replace the remapped deletion-calling analysis."
@@ -964,7 +1119,7 @@ def method_section(config: dict, burden: pd.DataFrame) -> str:
             },
             {
                 "term": "Deletion-supporting reads",
-                "definition": "Retained reads whose mitochondrial remap contains split/supplementary alignment evidence consistent with a deletion interval after circular-coordinate conversion, deduplication, filtering, and annotation.",
+                "definition": "Retained reads whose mitochondrial remap contains accepted split/supplementary alignment evidence for a directed retained adjacency and its inferred circular deletion interval after conversion, deduplication, filtering, and annotation.",
             },
             {
                 "term": "Local reference-spanning reads",
@@ -1257,8 +1412,8 @@ def circular_validation_section(config: dict, clusters: pd.DataFrame) -> str:
         },
         {
             "check": "Coordinate consolidation",
-            "result": "canonical circular coordinates",
-            "interpretation": "Calls from all rotations are reported on the original mitochondrial coordinate system.",
+            "result": "standard directed circular coordinates",
+            "interpretation": "Calls from all rotations are reported on the original coordinate system without swapping reciprocal directions.",
         },
     ]
     if not clusters.empty:
@@ -1269,7 +1424,7 @@ def circular_validation_section(config: dict, clusters: pd.DataFrame) -> str:
                 {
                     "check": "Origin-spanning exact deletions",
                     "result": wraps,
-                    "interpretation": "Nonzero values show that canonicalization can represent deletions crossing the coordinate origin.",
+                    "interpretation": "These alignment-directed deleted intervals pass through the configured coordinate origin.",
                 },
                 {
                     "check": "Configured deletion target matches",
@@ -1280,14 +1435,14 @@ def circular_validation_section(config: dict, clusters: pd.DataFrame) -> str:
         )
     rows.append(
         {
-            "check": "Rotation deduplication and reciprocal interval tests",
+            "check": "Rotation deduplication and directed reciprocal tests",
             "result": "covered by repository unit tests",
-            "interpretation": "The included test suite checks rotated-coordinate conversion, reciprocal interval canonicalization, origin wrapping, and duplicate rotation calls from the same read.",
+            "interpretation": "The test suite checks strand-normalized direction, rotated-coordinate conversion, separate reciprocal models, origin wrapping, and duplicate rotation support from the same read.",
         }
     )
     return section(
         "Circular Coordinate Checks",
-        "The mitochondrial remap step uses normal and rotated references, then converts all calls back to one circular coordinate system. These checks summarize the circular-coordinate assumptions visible in this run.",
+        "The mitochondrial remap step uses normal and rotated references, then converts calls back to one circular coordinate system while preserving directed retained adjacency. These checks summarize the circular-coordinate behavior visible in this run.",
         table_html(pd.DataFrame(rows), rows=20),
     )
 
@@ -1309,7 +1464,7 @@ def stream_summary_cards(label: str, clusters: pd.DataFrame, burden: pd.DataFram
         mean_burden = f"{pd.to_numeric(burden['deletion_support_per_million_mt_reads'], errors='coerce').fillna(0).mean():.3g}"
     return "".join(
         [
-            card(f"{label}: exact deletions", n_deletions, "Number of canonical deletion intervals passing the clustering and support filters."),
+            card(f"{label}: exact deletions", n_deletions, "Number of alignment-directed deletion intervals passing the clustering and support filters."),
             card(f"{label}: supporting reads", total_support, "Total split-read support assigned to reportable deletion intervals after rotation deduplication."),
             card(f"{label}: mean burden", mean_burden or "n/a", f"Average normalized deletion support across samples, {normalization_phrase(burden)}."),
         ]
@@ -1462,7 +1617,7 @@ def stream_result_section(
       {result_table_panel("Deletion Burden By Sample", "One row per sample with normalized deletion burden, raw support, and sample-level QC fields.", burden)}
       {result_table_panel("Exact Deletion Group Comparisons", "Exact breakpoint intervals compared across the configured primary groups.", exact_comp)}
       {result_table_panel("Affected-Feature Group Comparisons", "Exact deletions collapsed to the mitochondrial features affected by the deleted interval.", affected_comp)}
-      {result_table_panel("Exact Deletion Calls", "Canonical exact deletion intervals with coordinates, support, sample recurrence, feature annotations, interpretation fields, and links from total_supporting_reads to read-level evidence files. " + display_note, display_clusters, html_cells=exact_read_links, presorted=True)}
+      {result_table_panel("Exact Deletion Calls", "Alignment-directed exact deletion intervals with coordinates, complement diagnostics, direction and rotation status, support, sample recurrence, feature annotations, and links from total_supporting_reads to read-level evidence files. " + display_note, display_clusters, html_cells=exact_read_links, presorted=True)}
       {result_table_panel("Collapsed Feature-Impact Comparisons", "Broad structural classes derived from affected-feature annotations.", impact_comp)}
       {result_table_panel("Deletion Size Distribution Tests", "Group-level tests comparing deletion-size distributions.", size_tests)}
       {result_table_panel("Deletion Size Bin Summary", "Group summaries for small, medium, and large deletion support.", size_bin_summary)}
@@ -1506,6 +1661,7 @@ def main() -> None:
     parser.add_argument("--qc-summary", required=True)
     parser.add_argument("--clusters", required=True)
     parser.add_argument("--junction-reads", required=True)
+    parser.add_argument("--ambiguous-reads", required=True)
     parser.add_argument("--burden", required=True)
     parser.add_argument("--exact-comparison", required=True)
     parser.add_argument("--affected-comparison", required=True)
@@ -1528,6 +1684,7 @@ def main() -> None:
     qc = read_table(args.qc_summary)
     clusters = read_table(args.clusters)
     junction_reads = read_table(args.junction_reads)
+    ambiguous_reads = read_table(args.ambiguous_reads)
     burden = read_table(args.burden)
     exact_comp = read_table(args.exact_comparison)
     affected_comp = read_table(args.affected_comparison)
@@ -1562,7 +1719,7 @@ def main() -> None:
 
     plot_meta = {
         "deletion_burden_by_sample.pdf": ("Total Deletion Burden", "Normalized deletion-supporting reads by sample and group. Colored dots are individual samples; the black diamond is the group mean. Confidence intervals are omitted when any group has fewer than three samples."),
-        "unique_exact_deletions_by_sample.pdf": ("Distinct Exact Deletions", "Number of distinct canonical exact deletions detected in each sample."),
+        "unique_exact_deletions_by_sample.pdf": ("Distinct Exact Deletions", "Number of distinct alignment-directed exact deletions detected in each sample."),
         "deletion_burden_factorial_interaction.pdf": ("Deletion Burden: Age By Treatment", "Factorial interaction view for datasets with both age and treatment metadata. Points are samples; connected diamonds are treatment means at each age. This directly shows age effects, treatment effects, and possible age-by-treatment interaction patterns."),
         "unique_exact_deletions_factorial_interaction.pdf": ("Distinct Exact Deletions: Age By Treatment", "The same age-by-treatment interaction view applied to the number of distinct exact deletions per sample."),
         "deletion_size_distribution_unweighted.pdf": ("Deletion Size Distribution, Unweighted", "Distribution of deletion sizes where each deletion-supporting read contributes one count. This shows raw support and can be influenced by samples with more usable reads or more retained mitochondrial-evidence reads."),
@@ -1571,8 +1728,8 @@ def main() -> None:
         "deletion_size_distribution_small.pdf": ("Small Deletions (<1 kb)", "Restricted normalized size distribution for small deletions. This separates the dense short-deletion range from larger events."),
         "deletion_size_distribution_medium.pdf": ("Medium Deletions (1-5 kb)", "Restricted normalized size distribution for medium deletions, where group-specific peaks can be hidden in the full-range plot."),
         "deletion_size_distribution_large.pdf": ("Large Deletions (>=5 kb)", "Restricted normalized size distribution for large deletions. This is useful for common-deletion-sized or paper-sized events."),
-        "deletion_rainfall_left_breakpoint.pdf": ("Deletion Rainfall: Left Breakpoint", f"{rainfall_display_definition(config, burden)} Each point is one displayed exact deletion, placed by canonical left breakpoint and deleted size on a log y-axis. Larger and brighter points have more normalized support. A cyan outline marks origin-spanning deletions. This is a display filter for the plot only; the exact-deletion table remains the complete call list subject to its own table-display settings."),
-        "deletion_rainfall_right_breakpoint.pdf": ("Deletion Rainfall: Right Breakpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same displayed exact deletions and support scale as the left-breakpoint rainfall plot, but places each point by canonical right breakpoint. Comparing left and right views helps identify fixed-endpoint patterns."),
+        "deletion_rainfall_left_breakpoint.pdf": ("Deletion Rainfall: Left Breakpoint", f"{rainfall_display_definition(config, burden)} Each point is one displayed exact deletion, placed by alignment-directed left breakpoint and deleted size on a log y-axis. Larger and brighter points have more normalized support. A cyan outline marks directed intervals spanning the coordinate origin. This is a display filter for the plot only; the exact-deletion table remains the complete call list subject to its own table-display settings."),
+        "deletion_rainfall_right_breakpoint.pdf": ("Deletion Rainfall: Right Breakpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same displayed exact deletions and support scale as the left-breakpoint rainfall plot, but places each point by alignment-directed right breakpoint. Comparing left and right views helps identify fixed-endpoint patterns."),
         "deletion_rainfall_midpoint.pdf": ("Deletion Rainfall: Circular Midpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the circular midpoint of the deleted interval, so origin-spanning deletions are positioned by the midpoint along the deleted circular path rather than by a simple linear average."),
         "breakpoint_pair_support_map.pdf": ("Breakpoint-Pair Support Map", f"{rainfall_display_definition(config, burden)} Each point is one unique left/right breakpoint pair after applying the same display threshold and optional per-group cap as the rainfall plots. The x-axis is the left breakpoint; the y-axis is the right breakpoint, with origin-crossing right breakpoints shown above the horizontal genome-end line."),
         "pooled_breakpoint_support_density.pdf": ("Pooled Breakpoint Support Density", f"{rainfall_display_definition(config, burden)} This group-split view summarizes where deletion endpoints accumulate along the mitochondrial genome after pooling left and right breakpoints within each group. Stacked bars show binned support split by left versus right endpoint; the line is circular-smoothed total endpoint support."),
@@ -1582,7 +1739,7 @@ def main() -> None:
         "affected_feature_proportions.pdf": ("Affected Features: Within-Group Percent", "This uses the same affected-feature categories again, but rescales each group to 100 percent. It asks whether the mix of affected features changes, independent of total deletion burden."),
         "feature_impact_classes.pdf": ("Collapsed Feature-Impact Classes", "This collapses detailed affected-feature labels into broad structural classes such as single-feature, two-feature, or mixed multi-feature deletions. It is less specific but easier to compare across datasets."),
         "per_gene_affected_burden.pdf": ("Per-Gene Affected Burden", "This abandons feature-pair categories and counts every gene or feature overlapped by deleted intervals. A single deletion can contribute to several genes, so this answers which mitochondrial features are most often touched overall."),
-        "exact_deletion_recurrence.pdf": ("Exact Deletion Recurrence", "Top canonical exact deletions ranked by supporting reads and shown as separate group bars. Row labels show left and right breakpoints, deleted size, and a shortened affected-feature label; full identifiers and annotations are in the exact-deletions table."),
+        "exact_deletion_recurrence.pdf": ("Exact Deletion Recurrence", "Top alignment-directed exact deletions ranked by supporting reads and shown as separate group bars. Row labels show directed left and right breakpoints, deleted size, and a shortened affected-feature label; full identifiers and annotations are in the exact-deletions table."),
         "exact_deletion_pca.pdf": ("Exact Deletion PCA", "Sample ordination using normalized exact-deletion support. Static labels and centroids are omitted so crowded datasets remain readable."),
         "exact_deletion_bray_curtis_mds.pdf": ("Exact Deletion Bray-Curtis MDS", "Distance-based sample ordination using exact-deletion profiles. Static labels and centroids are omitted so crowded datasets remain readable."),
         "affected_feature_pca.pdf": ("Affected-Feature PCA", "Sample ordination after exact deletions are summed to affected-feature categories. Static labels and centroids are omitted so crowded datasets remain readable."),
@@ -1764,7 +1921,7 @@ def main() -> None:
         [
             card("Samples", n_samples, "Samples included after metadata resolution."),
             card("Groups", groups or "not configured", "Primary comparison labels from the dataset metadata."),
-            card("Remap exact deletions", n_deletions, "Canonical circular-remap deletion intervals passing clustering and support filters."),
+            card("Remap exact deletions", n_deletions, "Alignment-directed circular-remap deletion intervals passing clustering and support filters."),
             card("Remap supporting reads", total_support, "Deduplicated split reads assigned to reportable remap exact deletions."),
         ]
     )
@@ -1787,6 +1944,7 @@ def main() -> None:
     <a href="#design">Design</a>
     <a href="#reference">Reference</a>
     <a href="#method">Method</a>
+    <a href="#assumptions">Assumptions</a>
     <a href="#evidence">Evidence Streams</a>
     <a href="#circular-checks">Circular Checks</a>
     <a href="#qc">QC</a>
@@ -1800,6 +1958,7 @@ def main() -> None:
     <div id="design">{experimental_design_section(samples, burden, group_col)}</div>
     <div id="reference">{reference_section(config, features)}</div>
     <div id="method">{method_section(config, burden)}</div>
+    <div id="assumptions">{assumptions_section(config, clusters, ambiguous_reads, qc)}</div>
     <div id="evidence">{evidence_streams_section(qc, known_sequence_summary, known_sequence_hits, read_list_dir, overlap_table, overlap_html_cells)}</div>
     <div id="circular-checks">{circular_validation_section(config, clusters)}</div>
     <section id="qc"><div class="section-heading"><h2>Processing QC</h2><p>This table summarizes the first-pass read selection, mitochondrial remapping, and deletion-call denominators used by the report.</p></div>{table_html(qc, 300)}</section>

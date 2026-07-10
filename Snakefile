@@ -165,6 +165,7 @@ rule all:
         f"{OUTDIR}/junctions/junction_clusters.tsv",
         f"{OUTDIR}/annotations/mt_features.tsv",
         f"{OUTDIR}/junctions/all_samples.filtered_junction_reads.tsv",
+        f"{OUTDIR}/junctions/ambiguous_direction_reads.tsv",
         f"{OUTDIR}/analysis/breakpoint_reference_support.tsv",
         f"{OUTDIR}/matrices/exact_deletion_raw_counts.tsv",
         f"{OUTDIR}/matrices/exact_deletion_support_per_million_mt_reads.tsv",
@@ -758,6 +759,9 @@ rule parse_split_alignments:
         max_query_gap=CFG["mt_realign"].get("max_query_gap_bp", 20),
         include_secondary=bool_flag("mt_realign", "minimap2_include_secondary", "--include-secondary"),
         include_supplementary=bool_flag("mt_realign", "minimap2_include_supplementary", "--include-supplementary"),
+        arc_assignment=CFG["junctions"].get("arc_assignment", "alignment_directed"),
+        pairing_mode=CFG["junctions"].get("alignment_pairing_mode", "adjacent"),
+        ambiguous_direction_policy=CFG["junctions"].get("ambiguous_direction_policy", "exclude"),
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:
@@ -768,6 +772,8 @@ rule parse_split_alignments:
         "--min-mapq {params.min_mapq} --min-segment-aligned-fraction {params.min_aligned_fraction} "
         "--max-soft-clip-fraction {params.max_soft_clip_fraction} --max-query-overlap-bp {params.max_query_overlap} "
         "--max-query-gap-bp {params.max_query_gap} {params.include_secondary} {params.include_supplementary} "
+        "--arc-assignment {params.arc_assignment} --pairing-mode {params.pairing_mode} "
+        "--ambiguous-direction-policy {params.ambiguous_direction_policy} "
         "--candidates {output.candidates} --filtered {output.filtered} --summary {output.summary}"
 
 
@@ -778,16 +784,21 @@ rule cluster_junctions:
         all_reads=f"{OUTDIR}/junctions/all_samples.filtered_junction_reads.tsv",
         clusters=f"{OUTDIR}/junctions/junction_clusters.unannotated.tsv",
         id_map=f"{OUTDIR}/junctions/junction_id_map.tsv",
+        ambiguous=f"{OUTDIR}/junctions/ambiguous_direction_reads.tsv",
     params:
         slop=CFG["junctions"]["breakpoint_slop_bp"],
         min_support=CFG["junctions"]["min_split_read_support"],
         mt_length=MT_LENGTH,
+        ambiguous_direction_policy=CFG["junctions"].get("ambiguous_direction_policy", "exclude"),
+        result_schema_version=CFG["project"].get("result_schema_version", "2.0-alignment-directed-arcs"),
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:
         "python scripts/consolidate_deletions.py --slop {params.slop} --min-support {params.min_support} "
         "--mt-length {params.mt_length} "
-        "--all-reads {output.all_reads} --clusters {output.clusters} --id-map {output.id_map} {input}"
+        "--all-reads {output.all_reads} --clusters {output.clusters} --id-map {output.id_map} "
+        "--ambiguous-reads {output.ambiguous} --ambiguous-direction-policy {params.ambiguous_direction_policy} "
+        "--result-schema-version {params.result_schema_version} {input}"
 
 
 rule estimate_breakpoint_reference_support:
@@ -834,6 +845,7 @@ rule build_matrices:
         clusters=f"{OUTDIR}/junctions/junction_clusters.tsv",
         id_map=f"{OUTDIR}/junctions/junction_id_map.tsv",
         all_reads=f"{OUTDIR}/junctions/all_samples.filtered_junction_reads.tsv",
+        ambiguous_reads=f"{OUTDIR}/junctions/ambiguous_direction_reads.tsv",
         config=DATASET_CONFIG if DATASET_CONFIG else RESOLVED_CONFIG,
         counts=sample_outputs(f"{OUTDIR}/qc/{{sample}}/fragment_counts.tsv"),
         mt_summaries=sample_outputs(f"{OUTDIR}/mt_reads/{{sample}}.mt_read_summary.json"),
@@ -862,7 +874,7 @@ rule build_matrices:
         "envs/mitochondrial-deletions.yaml"
     shell:
         "python scripts/analyze_deletions.py --samples {input.samples} --clusters {input.clusters} "
-        "--id-map {input.id_map} --all-reads {input.all_reads} --config {input.config} "
+        "--id-map {input.id_map} --all-reads {input.all_reads} --ambiguous-reads {input.ambiguous_reads} --config {input.config} "
         "--group-column {params.group} --group-columns {params.group_columns} "
         "--normalization-denominator {params.normalization_denominator} "
         "--fragment-counts {input.counts} --mt-summaries {input.mt_summaries} "
@@ -959,6 +971,7 @@ rule make_report:
         features=f"{OUTDIR}/annotations/mt_features.tsv",
         clusters=f"{OUTDIR}/junctions/junction_clusters.tsv",
         junction_reads=f"{OUTDIR}/junctions/all_samples.filtered_junction_reads.tsv",
+        ambiguous_reads=f"{OUTDIR}/junctions/ambiguous_direction_reads.tsv",
         qc_summary=f"{OUTDIR}/analysis/qc_summary.tsv",
         burden=f"{OUTDIR}/analysis/deletion_burden.tsv",
         exact_comparison=f"{OUTDIR}/analysis/exact_deletion_comparison.tsv",
@@ -1010,7 +1023,8 @@ rule make_report:
     shell:
         "python scripts/make_deletion_report.py --title '{params.title}' --config {input.config} "
         "--samples {input.samples} --features {input.features} --qc-summary {input.qc_summary} "
-        "--clusters {input.clusters} --junction-reads {input.junction_reads} --burden {input.burden} --exact-comparison {input.exact_comparison} "
+        "--clusters {input.clusters} --junction-reads {input.junction_reads} --ambiguous-reads {input.ambiguous_reads} "
+        "--burden {input.burden} --exact-comparison {input.exact_comparison} "
         "--affected-comparison {input.affected_comparison} --impact-class-comparison {input.impact_comparison} "
         "--size-tests {input.size_tests} --size-bin-summary {input.size_bin_summary} "
         "--factorial-model-summary {input.factorial_model_summary} --metadata-associations {input.metadata_assoc} "

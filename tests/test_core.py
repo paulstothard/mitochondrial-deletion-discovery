@@ -1,5 +1,6 @@
 import sys
 import unittest
+from argparse import Namespace
 from pathlib import Path
 
 import pandas as pd
@@ -9,9 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from classify_mt_reads import classify_alignment, reverse_complement
 from annotate_junctions import append_configured_regions, apply_feature_aliases, biological_features
 from analyze_deletions import deduplicate_evidence_reads, expected_transcript_mask
-from circular_deletions import affected_feature_impact, configured_deletion_targets, known_deletion_match, normalize_pos as normalize_rotated_pos
+from circular_deletions import affected_feature_impact, configured_deletion_targets, directed_breakpoints, known_deletion_match, normalize_pos as normalize_rotated_pos
+from call_minimap2_deletions import deletion_from_segments
 from cluster_junctions import canonical_junction
-from consolidate_deletions import cluster_rows
+from consolidate_deletions import cluster_rows, split_direction_conflicts
 from make_rotated_mt_reference import rotate_sequence
 from parse_split_alignments import aligned_bases_from_cigar, deletion_size, normalize_pos, parse_star_junction_line
 from prepare_reads import normalized_layout
@@ -32,6 +34,7 @@ from plot_deletion_results import (
 )
 from estimate_breakpoint_reference_support import circular_window, window_covered
 from make_deletion_report import (
+    assay_limitations,
     exact_deletion_display_table,
     exact_deletion_support_read_links,
     sequence_remap_overlap_table,
@@ -81,6 +84,49 @@ class FakeWholeGenomeRead:
         self.query_sequence = "A" * query_length
 
 
+def caller_segment(query_start, query_end, ref_start, ref_end, strand="+", read_id="readA", rotation="normal"):
+    return {
+        "read_id": read_id,
+        "query_name": read_id,
+        "query_start": query_start,
+        "query_end": query_end,
+        "anchor_length": query_end - query_start,
+        "ref_start_raw": ref_start,
+        "ref_end_raw": ref_end,
+        "ref_start": ref_start,
+        "ref_end": ref_end,
+        "strand": strand,
+        "mapq": 60,
+        "is_primary": "yes" if query_start == 0 else "no",
+        "is_secondary": "no",
+        "is_supplementary": "no" if query_start == 0 else "yes",
+        "aligned_fraction": 0.5,
+        "soft_clip_fraction": 0.5,
+        "cigar": "50M50S" if query_start == 0 else "50S50M",
+        "flag": 0,
+        "alignment_score": 50,
+        "edit_distance": 0,
+        "sa_tag": "",
+        "minimap2_type": "P" if query_start == 0 else "",
+        "rotation_name": rotation,
+    }
+
+
+def caller_args(mt_length=1000):
+    return Namespace(
+        sample="s1",
+        species="human",
+        mt_length=mt_length,
+        rotation_start=1,
+        rotation_name="normal",
+        min_deletion_size=1,
+        max_deletion_size=mt_length - 2,
+        max_query_overlap_bp=5,
+        max_query_gap_bp=5,
+        arc_assignment="alignment_directed",
+    )
+
+
 class CoreTests(unittest.TestCase):
     def test_value_columns_excludes_normalization_denominators(self):
         matrix = pd.DataFrame(
@@ -117,7 +163,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(deletion_size(100, 500, 16313), 399)
         self.assertEqual(deletion_size(16000, 200, 16313), 512)
 
-    def test_canonical_junction_merges_reciprocal_breakpoint_pair(self):
+    def test_directed_junction_preserves_reciprocal_breakpoint_models(self):
         mt_length = 16569
         direct = canonical_junction(
             {"left_breakpoint": 8472, "right_breakpoint": 13448, "deleted_size": 4975},
@@ -128,8 +174,69 @@ class CoreTests(unittest.TestCase):
             mt_length,
         )
         self.assertEqual((direct["left_breakpoint"], direct["right_breakpoint"], direct["deleted_size"]), (8472, 13448, 4975))
-        self.assertEqual((reciprocal["left_breakpoint"], reciprocal["right_breakpoint"], reciprocal["deleted_size"]), (8472, 13448, 4975))
-        self.assertEqual(reciprocal["canonical_orientation"], "reversed_to_shorter_interval")
+        self.assertEqual((reciprocal["left_breakpoint"], reciprocal["right_breakpoint"], reciprocal["deleted_size"]), (13448, 8472, 11592))
+        self.assertEqual(reciprocal["canonical_orientation"], "alignment_directed")
+        self.assertEqual(direct["breakpoint_pair_id"], reciprocal["breakpoint_pair_id"])
+
+    def test_directed_breakpoints_do_not_choose_shorter_arc(self):
+        directed = directed_breakpoints(100, 800, 1000)
+        self.assertEqual(directed["deleted_size"], 699)
+        self.assertEqual(directed["complement_deleted_size"], 299)
+        self.assertEqual(directed["wraps_origin"], "no")
+
+    def test_minimap2_plus_strand_query_order_assigns_directed_wrapping_arc(self):
+        first = caller_segment(0, 50, 951, 980, "+")
+        second = caller_segment(50, 100, 100, 149, "+")
+        row = deletion_from_segments(first, second, caller_args())
+        self.assertEqual((row["left_breakpoint"], row["right_breakpoint"]), (980, 100))
+        self.assertEqual(row["deleted_size"], 119)
+        self.assertEqual(row["wraps_origin"], "yes")
+        self.assertEqual(row["arc_assignment_method"], "alignment_directed")
+
+    def test_minimap2_minus_strand_query_order_assigns_same_directed_arc(self):
+        first = caller_segment(0, 50, 100, 149, "-")
+        second = caller_segment(50, 100, 951, 980, "-")
+        row = deletion_from_segments(first, second, caller_args())
+        self.assertEqual((row["left_breakpoint"], row["right_breakpoint"]), (980, 100))
+        self.assertEqual(row["deleted_size"], 119)
+        self.assertEqual(row["left_anchor_length"], 50)
+        self.assertEqual(row["right_anchor_length"], 50)
+
+    def test_reciprocal_directed_calls_do_not_cluster_together(self):
+        rows = [
+            {"sample": "s1", "species": "human", "read_id": "readA", "left_breakpoint": "100", "right_breakpoint": "800", "deleted_size": "699", "rotation_name": "normal"},
+            {"sample": "s1", "species": "human", "read_id": "readB", "left_breakpoint": "800", "right_breakpoint": "100", "deleted_size": "299", "rotation_name": "normal"},
+        ]
+        _, clusters, _ = cluster_rows(rows, slop=5, min_support=1, mt_length=1000)
+        self.assertEqual(len(clusters), 2)
+        self.assertEqual({(row["left_breakpoint"], row["right_breakpoint"]) for row in clusters}, {(100, 800), (800, 100)})
+
+    def test_same_read_reciprocal_rotations_are_ambiguous(self):
+        rows = [
+            {"sample": "s1", "species": "human", "read_id": "readA", "left_breakpoint": "100", "right_breakpoint": "800", "deleted_size": "699", "rotation_name": "normal"},
+            {"sample": "s1", "species": "human", "read_id": "readA", "left_breakpoint": "800", "right_breakpoint": "100", "deleted_size": "299", "rotation_name": "half"},
+        ]
+        accepted, ambiguous = split_direction_conflicts(rows)
+        self.assertEqual(accepted, [])
+        self.assertEqual(len(ambiguous), 2)
+        self.assertTrue(all(row["direction_status"] == "ambiguous_across_rotations" for row in ambiguous))
+
+    def test_same_read_reciprocal_rotations_are_ambiguous_with_breakpoint_slop(self):
+        rows = [
+            {"sample": "s1", "species": "human", "read_id": "readA", "left_breakpoint": "100", "right_breakpoint": "800", "deleted_size": "699", "rotation_name": "normal"},
+            {"sample": "s1", "species": "human", "read_id": "readA", "left_breakpoint": "803", "right_breakpoint": "98", "deleted_size": "294", "rotation_name": "half"},
+        ]
+        accepted, ambiguous = split_direction_conflicts(rows, mt_length=1000, slop=5)
+        self.assertEqual(accepted, [])
+        self.assertEqual(len(ambiguous), 2)
+
+    def test_circular_breakpoint_slop_clusters_across_coordinate_origin(self):
+        rows = [
+            {"sample": "s1", "species": "human", "read_id": "readA", "left_breakpoint": "999", "right_breakpoint": "400", "deleted_size": "400", "rotation_name": "normal"},
+            {"sample": "s1", "species": "human", "read_id": "readB", "left_breakpoint": "1", "right_breakpoint": "401", "deleted_size": "399", "rotation_name": "half"},
+        ]
+        _, clusters, _ = cluster_rows(rows, slop=3, min_support=1, mt_length=1000)
+        self.assertEqual(len(clusters), 1)
 
     def test_known_sequence_single_search_matches_reverse_complement(self):
         deletion = {
@@ -442,6 +549,16 @@ class CoreTests(unittest.TestCase):
         self.assertIn('class="table-wrap"', html)
         self.assertIn('class="dataframe data-table"', html)
         self.assertEqual(html.count('class="table-wrap"'), 1)
+
+    def test_report_assay_limitations_are_configuration_driven(self):
+        nanopore_unknown = assay_limitations({"dataset": {"read_technology": "nanopore", "molecule_type": "unknown"}})
+        self.assertIn("Nanopore reads", nanopore_unknown)
+        self.assertIn("Molecule type is not specified", nanopore_unknown)
+        self.assertNotIn("RNA-derived", nanopore_unknown)
+
+        illumina_rna = assay_limitations({"dataset": {"read_technology": "illumina", "molecule_type": "rna"}})
+        self.assertIn("Illumina split-read anchors", illumina_rna)
+        self.assertIn("RNA-derived split alignments", illumina_rna)
 
     def test_known_sequence_summary_links_matching_reads_to_read_names(self):
         import pandas as pd

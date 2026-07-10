@@ -5,6 +5,9 @@ dataset:
   sample_table: metadata/human_nanopore.samples.tsv
   group_columns: [condition]
   primary_group_column: condition
+  read_technology: nanopore
+  molecule_type: unknown
+  library_strategy: unknown_long_read
 
 downloads:
   method: ena_fastq

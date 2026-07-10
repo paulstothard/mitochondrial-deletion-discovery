@@ -13,7 +13,7 @@ Current dataset configs:
 
 The main report is focused on mitochondrial circular-remap deletion calls. The first-pass genome alignment is used as read selection and provenance, not as a reported biological result stream. The default selection mode is competitive whole-genome assignment: reads are aligned with nuclear chromosomes and mtDNA present together, then reads whose best/selected evidence is mitochondrial are passed to mitochondrial remapping. Nuclear-only unmapped-read selection and the older full-genome mitochondrial-evidence scanner remain available as configuration-driven sensitivity/reproducibility modes.
 
-**Mitochondrial circular-remap results.** Selected reads are remapped with minimap2 to mitochondrial-only references, converted back to the original mtDNA coordinate system, and canonicalized as circular breakpoint pairs. By default these results are normalized per million usable reads after read preparation, matching the earlier workflow behavior. The denominator can be changed with `analysis.normalization_denominator`; supported values are `total_usable_reads` and `mt_evidence_reads`.
+**Mitochondrial circular-remap results.** Selected reads are remapped with minimap2 to mitochondrial-only references and converted back to the original mtDNA coordinate system. Query order and alignment strand define a directed retained adjacency `L -> R`; the inferred deleted interval is the forward circular arc from retained base `L` to retained base `R`. The reciprocal `R -> L` adjacency is a different deletion model and is not collapsed by choosing the shorter arc. By default these results are normalized per million usable reads after read preparation. The denominator can be changed with `analysis.normalization_denominator`; supported values are `total_usable_reads` and `mt_evidence_reads`.
 
 **Mitochondrial-evidence reads** are the reads retained after first-pass genome assignment because their best or selected alignment evidence is mitochondrial. They are the reads written to the remap-input FASTQs. They are the input to circular remapping and can optionally be used as the per-million denominator, but they are not the default denominator. This is different from the local breakpoint reference-support denominator described below.
 
@@ -36,7 +36,7 @@ Main stages:
 
 The report is organized around the following result levels.
 
-**Exact deletions** are coordinate-level events. They have canonical left and right breakpoints, deleted size, wrapping status, support, normalized support, sample/group labels, and optional configured target labels such as the human common mtDNA deletion.
+**Exact deletions** are directed coordinate-level inferred deletion models. They have alignment-directed left and right retained-flanking breakpoints, deleted size, wrapping status, complement diagnostics, direction and rotation status, support, normalized support, sample/group labels, and optional configured target labels such as the human common mtDNA deletion.
 
 For each exact deletion, the workflow also estimates local reference-spanning support at the two breakpoints. This asks a narrow question: in the same mitochondrial remap stream, how many primary alignments span the left and right breakpoint neighborhoods without requiring a deletion split? The workflow counts local spanning depth in the normal and rotated mitochondrial remaps and uses the larger count for each breakpoint, which avoids summing the same evidence twice across rotations. The report gives the left and right reference-spanning counts, the smaller of those two counts, and a local split-support fraction:
 
@@ -61,22 +61,35 @@ The workflow handles this by using two non-duplicated mitochondrial references:
 - the normal mtDNA sequence;
 - a second mtDNA sequence rotated by half the mitochondrial genome.
 
-The workflow does **not** use a duplicated padded reference such as `mtDNA + mtDNA`, because that can create avoidable multimapping when the same sequence appears twice.
+The primary caller does **not** use a duplicated reference such as `mtDNA + mtDNA`, because the repeated sequence creates avoidable secondary placement. A doubled or padded reference can be useful as an optional diagnostic for artificial linear-boundary behavior when it is paired with an explicit central-copy coordinate policy.
 
 After minimap2 remapping:
 
-- coordinates from the rotated reference are converted back to the original mtDNA coordinate system;
-- reciprocal breakpoint-pair representations are resolved by choosing the shorter circular deleted interval;
-- the same read supporting the same canonical deletion in both rotations is counted once in matrices, burden summaries, statistics, and reports;
-- final exact-deletion IDs are generated from canonical coordinates and deleted size.
+- coordinates from the rotated reference are converted back to the original mtDNA coordinate system without reversing the directed adjacency;
+- query order and strand define which retained flank occurs before and after the junction;
+- the deleted interval is the forward circular arc from the directed left breakpoint to the directed right breakpoint, excluding both retained breakpoint bases;
+- reciprocal `L -> R` and `R -> L` junctions remain distinct exact deletions;
+- the same read supporting the same directed deletion in both rotations is counted once in matrices, burden summaries, statistics, and reports;
+- same-read reciprocal conflicts across rotations are retained as ambiguous evidence and excluded from primary summaries by default;
+- final exact-deletion IDs are generated from directed coordinates and deleted size.
 
 Example:
 
-- A common-deletion-like human event may appear as `8472 -> 13448`, about 5 kb.
-- The reciprocal representation `13448 -> 8472` describes the complementary interval around the circle and can look like an approximately 11.6 kb event if interpreted linearly.
-- The workflow canonicalizes those representations so the same biological breakpoint pair is not split into two unrelated calls.
+- A read supporting `8472 -> 13448` implies a deleted interval of about 5 kb between those retained flanks.
+- A read supporting `13448 -> 8472` implies the complementary origin-spanning interval of about 11.6 kb.
+- The two models share an unordered breakpoint pair but are not biologically interchangeable. If alignments cannot distinguish them reliably, the evidence is marked ambiguous rather than resolved by interval length.
 
-Circular handling is core correctness logic, not a plotting trick. Unit tests cover coordinate conversion, reciprocal canonicalization, wrapping interval annotation, and rotated-reference deduplication.
+Circular handling is core correctness logic, not a plotting trick. Unit tests cover strand-normalized directed junctions, coordinate conversion, separate reciprocal models, long and origin-spanning arcs, wrapping interval annotation, direction conflicts, and rotated-reference deduplication.
+
+The deleted bases are absent from a junction-spanning read. Their identity is inferred from the new adjacency of the retained flanks. For example, a read containing reference sequence ending at retained base `L` followed immediately by sequence beginning at retained base `R` supports the `L|R` junction and the forward `L -> R` deleted arc. This is sequence evidence for an inferred deletion model, not by itself proof that the source molecule was a viable mtDNA genome.
+
+## Assay Identity And Interpretation
+
+Dataset configuration should state `dataset.read_technology`, `dataset.molecule_type`, and `dataset.library_strategy`. Reports use these fields to select applicable assumptions; they do not infer DNA versus RNA from sample names or mapper presets. Use `unknown` when the assay has not been confirmed.
+
+For nanopore data, long anchors can support direct junction inspection, but base errors, homopolymers, supplementary or alternative placements, ligation artifacts, chimeric reads, and concatemers can affect calls. For Illumina data, short split anchors can be difficult to place uniquely around repeats and NUMTs; the current workflow does not call a deletion from mate distance alone.
+
+For RNA-derived data, transcript processing, reverse transcription, and template switching can create deletion-like split alignments, and read abundance does not measure mtDNA heteroplasmy. For DNA-derived data, split evidence is closer to genome-molecule evidence but can still reflect NUMTs, PCR or ligation chimeras, mapping ambiguity, and sampling. In either case, coordinate evidence should not be described as a confirmed biological deletion without appropriate context and validation.
 
 ## RNA-Specific Transcript Artifact Handling
 
@@ -105,6 +118,9 @@ Current filters and annotations include:
 Important configurable settings:
 
 - `junctions.min_anchor_length`
+- `junctions.arc_assignment`: defaults to `alignment_directed`; `legacy_shortest_arc` is available only for explicitly labelled historical reproduction.
+- `junctions.alignment_pairing_mode`: defaults to adjacent query segments rather than all compatible segment pairs.
+- `junctions.ambiguous_direction_policy`: defaults to excluding reciprocal same-read conflicts from primary summaries while retaining them for QC.
 - `junctions.min_deletion_size`
 - `junctions.max_deletion_size`
 - `junctions.breakpoint_slop_bp`
@@ -237,7 +253,8 @@ Heatmaps are intentionally not part of the main report.
 - `config/datasets/*.yaml` - dataset-specific configuration.
 - `envs/mitochondrial-deletions.yaml` - conda environment used by Snakemake rules.
 - `scripts/` - Python workflow scripts.
-- `tests/` - focused unit tests for metadata, circular coordinates, canonical deletions, and parsing helpers.
+- `docs/workflow_methods_and_assumptions.md` - detailed workflow stages, coordinate semantics, assumptions, and assay-specific interpretation.
+- `tests/` - focused unit tests for metadata, directed circular coordinates, deletion evidence, reporting helpers, and parsing.
 - `planning/` - planning notes and legacy/reference analysis material.
 - `AGENTS.md` - local instructions for Codex or other coding agents.
 
@@ -413,8 +430,11 @@ Final deliverables:
 
 Important machine-readable outputs:
 
-- `junctions/junction_clusters.tsv` - canonical exact deletions with annotation.
+- `junctions/junction_clusters.tsv` - alignment-directed exact deletions with annotation, direction status, complement diagnostics, rotation agreement, and schema version.
 - `junctions/all_samples.filtered_junction_reads.tsv` - filtered remap read-level rows before matrix-level normal/rotated deduplication.
+- `junctions/ambiguous_direction_reads.tsv` - reciprocal-direction conflicts retained for audit and excluded from primary summaries by default.
+- `<dataset>_deliverables/tables/run_methods.tsv` - machine-readable resolved settings used by the run.
+- `<dataset>_deliverables/tables/data_dictionary.tsv` - delivered table/column inventory and definitions.
 - `analysis/breakpoint_reference_support.tsv` - local reference-spanning read counts at exact-deletion breakpoints and the resulting local split-support fraction.
 - `matrices/exact_deletion_raw_counts.tsv`
 - `matrices/exact_deletion_support_per_million_mt_reads.tsv`

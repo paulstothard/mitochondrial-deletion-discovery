@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Historical pre-2.0 shortest-arc audit; see the audit document before reuse."""
 from __future__ import annotations
 
 import csv

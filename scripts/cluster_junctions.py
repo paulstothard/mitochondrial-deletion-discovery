@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from circular_deletions import breakpoint_pair_id, circular_position_distance, directed_breakpoints
 from common import read_tsv, write_tsv
 
 
@@ -12,32 +13,25 @@ def circular_deletion_size(left: int, right: int, mt_length: int) -> int:
 
 
 def canonical_junction(row: dict, mt_length: int) -> dict:
+    """Normalize a directed junction without replacing it with its complement."""
     left = int(row["left_breakpoint"])
     right = int(row["right_breakpoint"])
-    forward_size = circular_deletion_size(left, right, mt_length)
-    reverse_size = circular_deletion_size(right, left, mt_length)
+    directed = directed_breakpoints(left, right, mt_length)
     canonical = dict(row)
     canonical["reported_left_breakpoint"] = left
     canonical["reported_right_breakpoint"] = right
-    canonical["reported_deleted_size"] = int(row["deleted_size"])
-    if reverse_size < forward_size or (reverse_size == forward_size and (right, left) < (left, right)):
-        canonical["left_breakpoint"] = right
-        canonical["right_breakpoint"] = left
-        canonical["deleted_size"] = reverse_size
-        canonical["canonical_orientation"] = "reversed_to_shorter_interval"
-    else:
-        canonical["left_breakpoint"] = left
-        canonical["right_breakpoint"] = right
-        canonical["deleted_size"] = forward_size
-        canonical["canonical_orientation"] = "reported"
+    canonical["reported_deleted_size"] = directed["deleted_size"]
+    canonical.update(directed)
+    canonical["breakpoint_pair_id"] = breakpoint_pair_id(left, right)
+    canonical["canonical_orientation"] = "alignment_directed"
     return canonical
 
 
-def close(row: dict, cluster: dict, slop: int) -> bool:
+def close(row: dict, cluster: dict, slop: int, mt_length: int) -> bool:
     return (
         row["species"] == cluster["species"]
-        and abs(int(row["left_breakpoint"]) - int(cluster["left_breakpoint"])) <= slop
-        and abs(int(row["right_breakpoint"]) - int(cluster["right_breakpoint"])) <= slop
+        and circular_position_distance(int(row["left_breakpoint"]), int(cluster["left_breakpoint"]), mt_length) <= slop
+        and circular_position_distance(int(row["right_breakpoint"]), int(cluster["right_breakpoint"]), mt_length) <= slop
     )
 
 
@@ -60,7 +54,7 @@ def main() -> None:
     id_rows = []
     id_seen = set()
     for row in reads:
-        cluster = next((item for item in clusters if close(row, item, args.slop)), None)
+        cluster = next((item for item in clusters if close(row, item, args.slop, args.mt_length)), None)
         if cluster is None:
             cluster = {
                 "junction_id": f"mtDelJunc_{len(clusters) + 1:06d}",

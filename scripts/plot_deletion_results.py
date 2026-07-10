@@ -1615,8 +1615,8 @@ def location_plots(
         min_support_per_million=min_support_per_million,
         max_points_per_group=max_points_per_group,
     )
-    location_rainfall(display_grouped, groups, features, config, mt_length, out_left, "Deletion Rainfall By Canonical Left Breakpoint", "left_breakpoint", "Canonical left breakpoint on mitochondrial genome (bp)", support_label)
-    location_rainfall(display_grouped, groups, features, config, mt_length, out_right, "Deletion Rainfall By Canonical Right Breakpoint", "right_breakpoint", "Canonical right breakpoint on mitochondrial genome (bp)", support_label)
+    location_rainfall(display_grouped, groups, features, config, mt_length, out_left, "Deletion Rainfall By Directed Left Breakpoint", "left_breakpoint", "Directed left breakpoint on mitochondrial genome (bp)", support_label)
+    location_rainfall(display_grouped, groups, features, config, mt_length, out_right, "Deletion Rainfall By Directed Right Breakpoint", "right_breakpoint", "Directed right breakpoint on mitochondrial genome (bp)", support_label)
     location_rainfall(display_grouped, groups, features, config, mt_length, out_midpoint, "Deletion Rainfall By Circular Deleted-Interval Midpoint", "circular_midpoint", "Circular midpoint of deleted interval on mitochondrial genome (bp)", support_label)
     breakpoint_pair_support_map(display_grouped, groups, features, config, mt_length, out_pair_map, support_label)
     endpoint_density_pages(display_grouped, groups, features, config, mt_length, out_endpoint_density, "Pooled Breakpoint Support Density", support_label, bin_size=endpoint_density_bin_size, smooth_bins=endpoint_density_smooth_bins, capped=False)

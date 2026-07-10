@@ -5,6 +5,9 @@ dataset:
   sample_table: metadata/human_bulkseq_matched_nanopore.samples.tsv
   group_columns: [condition]
   primary_group_column: condition
+  read_technology: illumina
+  molecule_type: unknown
+  library_strategy: paired_end_short_read
 
 downloads:
   method: ena_fastq
