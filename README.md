@@ -85,7 +85,7 @@ The deleted bases are absent from a junction-spanning read. Their identity is in
 
 ## Assay Identity And Interpretation
 
-Dataset configuration should state `dataset.read_technology`, `dataset.molecule_type`, and `dataset.library_strategy`. Reports use these fields to select applicable assumptions; they do not infer DNA versus RNA from sample names or mapper presets. Use `unknown` when the assay has not been confirmed.
+Dataset configuration should state `dataset.read_technology`, `dataset.molecule_type`, `dataset.assay_type`, and `dataset.library_strategy`. Reports use these fields to select applicable assumptions; they do not infer DNA versus RNA or bulk versus single-cell design from sample names or mapper presets. Use `unknown` when an assay property has not been confirmed.
 
 For nanopore data, long anchors can support direct junction inspection, but base errors, homopolymers, supplementary or alternative placements, ligation artifacts, chimeric reads, and concatemers can affect calls. For Illumina data, short split anchors can be difficult to place uniquely around repeats and NUMTs; the current workflow does not call a deletion from mate distance alone.
 

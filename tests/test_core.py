@@ -704,6 +704,20 @@ class CoreTests(unittest.TestCase):
         self.assertIn("Illumina split-read anchors", illumina_rna)
         self.assertIn("RNA-derived split alignments", illumina_rna)
 
+        nanopore_single_cell_rna = assay_limitations(
+            {
+                "dataset": {
+                    "read_technology": "nanopore",
+                    "molecule_type": "rna",
+                    "assay_type": "single_cell_rna_seq",
+                }
+            }
+        )
+        self.assertIn("Nanopore reads", nanopore_single_cell_rna)
+        self.assertIn("RNA-derived split alignments", nanopore_single_cell_rna)
+        self.assertIn("Single-cell RNA-seq support", nanopore_single_cell_rna)
+        self.assertNotIn("Molecule type is not specified", nanopore_single_cell_rna)
+
     def test_known_sequence_summary_links_matching_reads_to_read_names(self):
         import pandas as pd
         import tempfile

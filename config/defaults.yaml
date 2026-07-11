@@ -6,6 +6,7 @@ project:
 dataset:
   read_technology: unknown
   molecule_type: unknown
+  assay_type: unknown
   library_strategy: unknown
 workflow:
   start_from: raw

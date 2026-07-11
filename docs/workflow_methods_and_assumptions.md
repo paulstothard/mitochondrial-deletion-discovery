@@ -30,8 +30,9 @@ mtDNA deletion molecule.
 
 Samples can use local FASTQ files or accessions. Metadata resolution prefers cached
 local metadata. Dataset configuration identifies the reference, grouping columns,
-read technology, molecule type, and library strategy. Unknown assay properties must
-be reported as `unknown`, not inferred from sample names or mapper presets.
+read technology, molecule type, assay type, and library strategy. Unknown assay
+properties must be reported as `unknown`, not inferred from sample names or mapper
+presets.
 
 ### 2. Read preparation
 

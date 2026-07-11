@@ -939,6 +939,7 @@ def assay_limitations(config: dict) -> str:
     dataset = config.get("dataset", {}) or {}
     technology = str(dataset.get("read_technology", "unknown")).strip().lower()
     molecule = str(dataset.get("molecule_type", "unknown")).strip().lower()
+    assay = str(dataset.get("assay_type", "unknown")).strip().lower()
     parts = []
     if technology == "nanopore":
         parts.append(
@@ -960,6 +961,10 @@ def assay_limitations(config: dict) -> str:
         )
     else:
         parts.append("Molecule type is not specified; DNA- versus RNA-specific biological interpretation is therefore limited.")
+    if assay == "single_cell_rna_seq":
+        parts.append(
+            "Single-cell RNA-seq support can be affected by cell-level sparsity, amplification, barcode or UMI processing, and pooling. Unless cell identifiers are retained in the workflow inputs, deletion support is summarized at the configured sample or group level rather than as per-cell prevalence."
+        )
     return " ".join(parts)
 
 
@@ -1055,6 +1060,7 @@ def method_section(config: dict, burden: pd.DataFrame) -> str:
             ("Result schema version", config.get("project", {}).get("result_schema_version", "unknown")),
             ("Read technology", dataset.get("read_technology", "unknown")),
             ("Molecule type", dataset.get("molecule_type", "unknown")),
+            ("Assay type", dataset.get("assay_type", "unknown")),
             ("Library strategy", dataset.get("library_strategy", "unknown")),
             ("Sample source", config.get("samples", {}).get("source", "")),
             ("Read preparation", config.get("downloads", {}).get("method", "")),

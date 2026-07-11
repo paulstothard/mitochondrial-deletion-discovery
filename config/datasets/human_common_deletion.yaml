@@ -8,7 +8,8 @@ dataset:
   - condition
   primary_group_column: deletion_status
   read_technology: illumina
-  molecule_type: unknown
+  molecule_type: rna
+  assay_type: rna_seq
   library_strategy: paired_end_short_read
 downloads:
   method: ena_fastq
