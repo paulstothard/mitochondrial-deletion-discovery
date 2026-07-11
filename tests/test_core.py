@@ -20,6 +20,7 @@ from parse_split_alignments import aligned_bases_from_cigar, deletion_size, norm
 from prepare_reads import normalized_layout
 from plot_deletion_results import (
     apply_cluster_coordinates,
+    assign_group_support_ranks,
     draw_feature_track_axis,
     endpoint_density_figure,
     endpoint_density_hotspots,
@@ -27,6 +28,7 @@ from plot_deletion_results import (
     mitochondrial_axis_bounds,
     pooled_endpoint_density,
     rainfall_point_sizes,
+    rank_label_font_size,
     support_scale_limits,
     rainfall_support_limits,
     rainfall_y_axis_min,
@@ -444,6 +446,30 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(int(grouped.loc[0, "right_breakpoint"]), 205)
         self.assertEqual(int(grouped.loc[0, "deleted_size"]), 99)
         self.assertEqual(int(grouped.loc[0, "supporting_reads"]), 2)
+        self.assertEqual(int(grouped.loc[0, "_support_rank"]), 1)
+
+    def test_location_support_ranks_are_unique_stable_and_group_specific(self):
+        data = pd.DataFrame(
+            [
+                {"_plot_group": "a", "_plot_support": 10.0, "exact_deletion_id": "mtDel_b", "left_breakpoint": 20, "right_breakpoint": 40, "deleted_size": 19},
+                {"_plot_group": "a", "_plot_support": 5.0, "exact_deletion_id": "mtDel_c", "left_breakpoint": 30, "right_breakpoint": 60, "deleted_size": 29},
+                {"_plot_group": "a", "_plot_support": 10.0, "exact_deletion_id": "mtDel_a", "left_breakpoint": 10, "right_breakpoint": 30, "deleted_size": 19},
+                {"_plot_group": "b", "_plot_support": 2.0, "exact_deletion_id": "mtDel_d", "left_breakpoint": 40, "right_breakpoint": 80, "deleted_size": 39},
+            ]
+        )
+        ranked = assign_group_support_ranks(data).set_index("exact_deletion_id")
+        self.assertEqual(int(ranked.loc["mtDel_a", "_support_rank"]), 1)
+        self.assertEqual(int(ranked.loc["mtDel_b", "_support_rank"]), 2)
+        self.assertEqual(int(ranked.loc["mtDel_c", "_support_rank"]), 3)
+        self.assertEqual(int(ranked.loc["mtDel_d", "_support_rank"]), 1)
+
+    def test_rank_label_font_size_uses_small_range_and_omits_tiny_markers(self):
+        self.assertEqual(rank_label_font_size(600.0, 1), 6.0)
+        fitted = rank_label_font_size(100.0, 12)
+        self.assertIsNotNone(fitted)
+        self.assertGreaterEqual(fitted, 4.0)
+        self.assertLessEqual(fitted, 6.0)
+        self.assertIsNone(rank_label_font_size(20.0, 1))
 
     def test_cluster_coordinate_adapter_recomputes_size_from_representative_breakpoints(self):
         reads = pd.DataFrame(

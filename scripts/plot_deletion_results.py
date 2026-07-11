@@ -12,8 +12,10 @@ import pandas as pd
 import seaborn as sns
 import yaml
 from matplotlib import colors, ticker
+from matplotlib.font_manager import FontProperties
 from matplotlib.patches import Rectangle
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.textpath import TextPath
 from scipy.spatial.distance import pdist, squareform
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
@@ -806,6 +808,9 @@ def size_distribution(reads: pd.DataFrame, samples: pd.DataFrame, group_col: str
 
 
 ORIGIN_OUTLINE_COLOR = "#00c8ff"
+RANK_LABEL_FONT_SIZES = (6.0, 5.5, 5.0, 4.5, 4.0)
+RANK_LABEL_MIN_MARKER_DIAMETER = 5.5
+RANK_LABEL_FIT_FRACTION = 0.76
 
 
 def apply_cluster_coordinates(reads: pd.DataFrame, clusters: pd.DataFrame | None, mt_length: int = 0) -> pd.DataFrame:
@@ -1053,6 +1058,44 @@ def support_ordered_groups(df: pd.DataFrame, support_col: str = "_plot_support")
         return []
     ordered = df.sort_values(support_col, ascending=True, kind="mergesort")
     return [group.copy() for _, group in ordered.groupby(support_col, sort=True)]
+
+
+def assign_group_support_ranks(df: pd.DataFrame) -> pd.DataFrame:
+    """Assign stable, unique support ranks independently within each plot group."""
+    if df.empty:
+        out = df.copy()
+        out["_support_rank"] = pd.Series(dtype="Int64")
+        return out
+    out = df.copy()
+    tie_columns = [col for col in ["exact_deletion_id", "left_breakpoint", "right_breakpoint", "deleted_size"] if col in out.columns]
+    sort_columns = ["_plot_group", "_plot_support", *tie_columns]
+    ascending = [True, False, *([True] * len(tie_columns))]
+    out = out.sort_values(sort_columns, ascending=ascending, kind="mergesort")
+    out["_support_rank"] = out.groupby("_plot_group", sort=False).cumcount() + 1
+    return out
+
+
+def rank_label_font_size(marker_area: float, rank: int) -> float | None:
+    """Return the largest allowed font size whose worst-case digits fit a marker."""
+    if not np.isfinite(marker_area) or marker_area <= 0 or int(rank) < 1:
+        return None
+    marker_diameter = float(np.sqrt(marker_area))
+    if marker_diameter < RANK_LABEL_MIN_MARKER_DIAMETER:
+        return None
+    digit_template = "8" * len(str(int(rank)))
+    available = marker_diameter * RANK_LABEL_FIT_FRACTION
+    font = FontProperties(family="DejaVu Sans", weight="bold")
+    for font_size in RANK_LABEL_FONT_SIZES:
+        bounds = TextPath((0, 0), digit_template, size=font_size, prop=font).get_extents()
+        if bounds.width <= available and bounds.height <= available:
+            return font_size
+    return None
+
+
+def rank_label_color(support: float, support_norm: colors.Normalize, cmap) -> str:
+    red, green, blue, _ = cmap(support_norm(float(support)))
+    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    return "#111827" if luminance >= 0.53 else "#ffffff"
 
 
 def adjusted_breakpoint_ticks(genome_length: int, y_max: float) -> tuple[list[float], list[str]]:
@@ -1350,10 +1393,16 @@ def add_location_legend(
     size_ax = legend_ax.inset_axes([0.13, 0.38, 0.80, 0.18])
     draw_support_size_scale(size_ax, support_size_legend_values(support_min, support_max), support_min, support_max, scatter.norm, scatter.cmap, support_label)
     if show_origin_outline:
-        legend_ax.scatter([0.30], [0.15], s=120, facecolors="none", edgecolors=ORIGIN_OUTLINE_COLOR, linewidths=1.5, transform=legend_ax.transAxes, clip_on=False)
-        legend_ax.text(0.44, 0.15, origin_label, va="center", fontsize=8, transform=legend_ax.transAxes)
+        legend_ax.scatter([0.30], [0.21], s=120, facecolors="none", edgecolors=ORIGIN_OUTLINE_COLOR, linewidths=1.5, transform=legend_ax.transAxes, clip_on=False)
+        legend_ax.text(0.44, 0.21, origin_label, va="center", fontsize=8, transform=legend_ax.transAxes)
+    rank_note = (
+        "Number inside marker = support rank within this group (1 = highest).\n"
+        "Ranks match across left, right, midpoint, and breakpoint-pair plots.\n"
+        "Numbers are omitted when the marker is too small."
+    )
     if note:
-        legend_ax.text(0.5, 0.07, note, ha="center", va="center", fontsize=8, transform=legend_ax.transAxes)
+        rank_note += f"\n{note}"
+    legend_ax.text(0.5, 0.075, rank_note, ha="center", va="center", fontsize=7.1, linespacing=1.18, transform=legend_ax.transAxes)
 
 
 def prepare_location_plot_data(
@@ -1388,8 +1437,11 @@ def prepare_location_plot_data(
         df["_support_weight"] = 1.0
         support_col = "supporting_reads"
         support_label = "Deletion-supporting reads"
+    group_columns = ["_plot_group", "left_breakpoint", "right_breakpoint", "deleted_size"]
+    if "exact_deletion_id" in df.columns:
+        group_columns.append("exact_deletion_id")
     grouped = (
-        df.groupby(["_plot_group", "left_breakpoint", "right_breakpoint", "deleted_size"], as_index=False)
+        df.groupby(group_columns, as_index=False, dropna=False)
         .agg(supporting_reads=("sample", "size"), support_per_million_mt_reads=("_support_weight", "sum"))
     )
     grouped["_plot_support"] = pd.to_numeric(grouped[support_col], errors="coerce").fillna(0)
@@ -1398,11 +1450,17 @@ def prepare_location_plot_data(
     groups = [group for group in ordered_groups(samples, group_col) if group in set(grouped["_plot_group"])] or sorted(grouped["_plot_group"].unique())
     capped = []
     for group in groups:
-        sub = grouped[grouped["_plot_group"] == group].sort_values("_plot_support", ascending=False)
+        tie_columns = [col for col in ["exact_deletion_id", "left_breakpoint", "right_breakpoint", "deleted_size"] if col in grouped.columns]
+        sub = grouped[grouped["_plot_group"] == group].sort_values(
+            ["_plot_support", *tie_columns],
+            ascending=[False, *([True] * len(tie_columns))],
+            kind="mergesort",
+        )
         if max_points_per_group > 0:
             sub = sub.head(max_points_per_group)
         capped.append(sub)
     grouped = pd.concat(capped, ignore_index=True) if capped else grouped.iloc[0:0].copy()
+    grouped = assign_group_support_ranks(grouped)
     return grouped, groups, support_label
 
 
@@ -1468,6 +1526,43 @@ def draw_location_points(
     return scatter
 
 
+def draw_location_rank_labels(
+    ax: plt.Axes,
+    data: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    support_min: float,
+    support_max: float,
+    support_norm: colors.Normalize,
+    cmap,
+) -> int:
+    if data.empty or "_support_rank" not in data.columns:
+        return 0
+    work = data.copy()
+    work["_marker_area"] = rainfall_point_sizes(work["_plot_support"], support_min, support_max)
+    labeled = 0
+    # Lower-support labels are drawn first so the most-supported ranks remain on top.
+    for _, row in work.sort_values("_support_rank", ascending=False, kind="mergesort").iterrows():
+        rank = int(row["_support_rank"])
+        font_size = rank_label_font_size(float(row["_marker_area"]), rank)
+        if font_size is None:
+            continue
+        ax.text(
+            float(row[x_col]),
+            float(row[y_col]),
+            str(rank),
+            ha="center",
+            va="center",
+            fontsize=font_size,
+            fontweight="bold",
+            color=rank_label_color(float(row["_plot_support"]), support_norm, cmap),
+            clip_on=True,
+            zorder=20,
+        )
+        labeled += 1
+    return labeled
+
+
 def location_rainfall(
     display_grouped: pd.DataFrame,
     groups: list[str],
@@ -1505,7 +1600,9 @@ def location_rainfall(
             ax.text(0.5, 0.5, "No exact deletions meet the location plot display threshold", ha="center", va="center", wrap=True, transform=ax.transAxes)
             legend_ax.set_axis_off()
         else:
-            scatter = draw_location_points(ax, sub, "_plot_x", "deleted_size", support_min, support_max, support_norm, location_support_colormap(), outline_crossing=True)
+            cmap = location_support_colormap()
+            scatter = draw_location_points(ax, sub, "_plot_x", "deleted_size", support_min, support_max, support_norm, cmap, outline_crossing=True)
+            draw_location_rank_labels(ax, sub, "_plot_x", "deleted_size", support_min, support_max, support_norm, cmap)
         ax.set_title(f"{title_prefix}: {group}")
         ax.set_ylabel("Deleted size (bp)")
         y_max = max(10_000, float(sub["deleted_size"].max()) * 1.18) if not sub.empty else 10_000
@@ -1559,10 +1656,16 @@ def breakpoint_pair_support_map(display_grouped: pd.DataFrame, groups: list[str]
         else:
             pairs = (
                 sub.groupby(["left_breakpoint", "right_breakpoint", "adjusted_right_breakpoint", "crosses_origin"], as_index=False)
-                .agg(_plot_support=("_plot_support", "sum"), supporting_reads=("supporting_reads", "sum"))
+                .agg(
+                    _plot_support=("_plot_support", "sum"),
+                    supporting_reads=("supporting_reads", "sum"),
+                    _support_rank=("_support_rank", "min"),
+                )
                 .sort_values("_plot_support", ascending=True, kind="mergesort")
             )
-            scatter = draw_location_points(ax, pairs, "left_breakpoint", "adjusted_right_breakpoint", support_min, support_max, support_norm, location_support_colormap(), outline_crossing=True)
+            cmap = location_support_colormap()
+            scatter = draw_location_points(ax, pairs, "left_breakpoint", "adjusted_right_breakpoint", support_min, support_max, support_norm, cmap, outline_crossing=True)
+            draw_location_rank_labels(ax, pairs, "left_breakpoint", "adjusted_right_breakpoint", support_min, support_max, support_norm, cmap)
         y_max = max(float(genome_length), float(sub["adjusted_right_breakpoint"].max()) if not sub.empty else float(genome_length))
         y_axis_max = y_max + max(250.0, (y_max - 1.0) * 0.035)
         ax.set_xlim(0, genome_length)

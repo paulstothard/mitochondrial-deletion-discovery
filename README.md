@@ -229,7 +229,7 @@ Main plots include:
 - distinct exact deletions by sample and group;
 - age-by-treatment interaction plots when `age` and `treatment` metadata are present;
 - deletion size distributions, including log-y and size-restricted views;
-- deletion rainfall plots shown as full-size per-group figures by left breakpoint, right breakpoint, and circular deleted-interval midpoint;
+- deletion rainfall plots shown as full-size per-group figures by left breakpoint, right breakpoint, and circular deleted-interval midpoint, with support-rank numbers inside markers that are large enough to label;
 - breakpoint-pair support maps showing which deletion starts pair with which deletion ends;
 - group-split pooled breakpoint support-density plots showing where deletion endpoints accumulate, with binned support split into left and right breakpoint bars behind a circular-smoothed total-support curve;
 - affected-feature normalized support and within-group proportions;
@@ -240,7 +240,7 @@ Main plots include:
 
 Plot group order and colors are chosen once per report and reused across plots. For two-factor designs with `age` and `treatment`, groups are ordered by age and then treatment, with control-like groups first within each age. Control-like groups use subdued colors and treatment groups use red-family colors when possible.
 
-The deletion rainfall plots, breakpoint-pair support map, and pooled breakpoint support-density plots are visual displays, not separate calling steps. They use the same display rule. By default `plots.rainfall_min_support_per_million: 0.0`, so low-abundance datasets are not hidden by a normalized-support cutoff. `plots.rainfall_max_points_per_group: 300` limits each group panel to the highest-support displayed exact deletions so dense datasets remain readable. These settings affect only the plots; the exact-deletion tables, matrices, comparisons, and read-list links retain the full analyzed call set subject to their own table-display filters.
+The deletion rainfall plots, breakpoint-pair support map, and pooled breakpoint support-density plots are visual displays, not separate calling steps. They use the same display rule. By default `plots.rainfall_min_support_per_million: 0.0`, so low-abundance datasets are not hidden by a normalized-support cutoff. `plots.rainfall_max_points_per_group: 300` limits each group panel to the highest-support displayed exact deletions so dense datasets remain readable. Within each group, displayed exact deletions receive unique support ranks using exact-deletion coordinates as a deterministic tie-breaker. Those ranks remain consistent across the left-breakpoint, right-breakpoint, circular-midpoint, and breakpoint-pair views; a rank is printed inside its marker only when it fits at the configured plotting size. These settings affect only the plots; the exact-deletion tables, matrices, comparisons, and read-list links retain the full analyzed call set subject to their own table-display filters.
 
 Large result tables in the HTML report are searchable, sortable, and paged. Small tables are shown directly without search controls.
 
