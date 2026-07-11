@@ -225,18 +225,18 @@ checkpoint resolve_samples:
         ),
     output:
         samples=RESOLVED_SAMPLES,
-        config=RESOLVED_CONFIG,
-        run_table=f"metadata/generated/{DATASET}.sra_run_table.csv",
     params:
         bioproject=lambda wildcards: f'--bioproject {CFG["dataset"]["bioproject"]}' if CFG["dataset"].get("bioproject") else "",
         sra_run_table=lambda wildcards: f'--sra-run-table {CFG["dataset"]["sra_run_table"]}' if CFG["dataset"].get("sra_run_table") else "",
         sample_table=lambda wildcards: f'--sample-table {CFG["dataset"]["sample_table"]}' if CFG["dataset"].get("sample_table") else "",
+        out_run_table=f"metadata/generated/{DATASET}.sra_run_table.csv",
+        out_config=RESOLVED_CONFIG,
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:
         "python scripts/resolve_samples.py --defaults {input.defaults} --dataset-config {input.dataset_config} "
         "--dataset {DATASET} --species {SPECIES} {params.bioproject} {params.sra_run_table} {params.sample_table} "
-        "--out-run-table {output.run_table} --out-samples {output.samples} --out-config {output.config}"
+        "--out-run-table {params.out_run_table} --out-samples {output.samples} --out-config {params.out_config}"
 
 
 rule download_genome:

@@ -145,6 +145,15 @@ def caller_args(mt_length=1000):
 
 
 class CoreTests(unittest.TestCase):
+    def test_sample_resolution_checkpoint_has_one_tracked_output(self):
+        snakefile = (Path(__file__).resolve().parents[1] / "Snakefile").read_text(encoding="utf-8")
+        checkpoint = snakefile.split("checkpoint resolve_samples:", 1)[1].split("\n\nrule download_genome:", 1)[0]
+
+        self.assertIn("sample_source=lambda wildcards", checkpoint)
+        self.assertIn("    output:\n        samples=RESOLVED_SAMPLES,\n    params:", checkpoint)
+        self.assertNotIn("\n        config=RESOLVED_CONFIG,", checkpoint)
+        self.assertNotIn("\n        run_table=f", checkpoint)
+
     def test_value_columns_excludes_normalization_denominators(self):
         matrix = pd.DataFrame(
             {
