@@ -26,17 +26,15 @@ and deleted size under the coordinate convention defined below.
 
 ## Core Invariants
 
-### Stored query order
+### Query order and strand normalization
 
-Split segments are ordered by stored SAM/BAM query coordinates. SAM/BAM already
-stores reverse-strand sequence reverse-complemented, so stored query order is used
-the same way for plus- and minus-strand records. Reverse-strand segments must not be
-reversed a second time.
+Split segments are ordered by query coordinates and normalized to a
+forward-reference retained adjacency. For two compatible same-strand segments:
 
-For two compatible same-strand segments in stored query order:
-
-- the earlier segment ends at retained reference base `L`;
-- the later segment begins at retained reference base `R`;
+- on the plus strand, the earlier segment ends at retained reference base `L` and
+  the later segment begins at retained reference base `R`;
+- on the minus strand, the later segment ends at retained reference base `L` and
+  the earlier segment begins at retained reference base `R`;
 - the read-supported retained adjacency is `L -> R`.
 
 ### Directed deleted arc
@@ -112,7 +110,9 @@ configuration and report:
 - expected transcript-junction filtering.
 
 The established default evaluates all compatible segment pairs within one physical
-read or mate. Secondary and supplementary alignments are eligible by default.
+read or mate. Supplementary records and SA-tagged primary or secondary records are
+eligible by default; ordinary single-segment records cannot form a split chain and
+are not retained by the caller.
 Adjacent-only pairing and secondary-excluded calling are sensitivity modes and must
 be labelled as such when used.
 
@@ -259,9 +259,10 @@ Before rerunning from existing intermediates:
 
 The workflow satisfies this specification when:
 
-1. Deleted intervals follow stored split-alignment query order rather than interval
-   length.
-2. Reverse-strand records are not reversed after BAM storage semantics are applied.
+1. Deleted intervals follow strand-normalized split-alignment query order rather
+   than interval length.
+2. Minus-strand segment roles are reversed to express the retained adjacency on
+   the forward reference.
 3. Paired mates cannot form one split-alignment chain.
 4. Reciprocal models remain distinct or are explicitly marked ambiguous.
 5. Rotation conversion and cross-rotation deduplication preserve direction.

@@ -119,15 +119,19 @@ def deletion_from_segments(a: dict, b: dict, args: argparse.Namespace) -> dict |
     query_first = a
     query_second = b
 
-    # SAM/BAM stores reverse-strand SEQ reverse-complemented, so CIGAR query
-    # coordinates advance with the reference for same-strand split records.
-    # Reversing the segment order again would select the reciprocal arc.
-    left_segment = a
-    right_segment = b
-    directed_left = a["ref_end"]
-    directed_right = b["ref_start"]
-    raw_left = a["ref_end_raw"]
-    raw_right = b["ref_start_raw"]
+    # Query order traverses the retained adjacency in opposite reference
+    # directions on the two strands. Normalize both to the forward-reference
+    # deletion model L|R before selecting the directed circular arc.
+    if a["strand"] == "+":
+        left_segment = a
+        right_segment = b
+    else:
+        left_segment = b
+        right_segment = a
+    directed_left = left_segment["ref_end"]
+    directed_right = right_segment["ref_start"]
+    raw_left = left_segment["ref_end_raw"]
+    raw_right = right_segment["ref_start_raw"]
 
     directed = directed_breakpoints(directed_left, directed_right, args.mt_length)
     if args.arc_assignment == "legacy_shortest_arc":
@@ -346,6 +350,9 @@ def main() -> None:
     with pysam.AlignmentFile(args.bam, "rb") as bam:
         for read in bam.fetch(until_eof=True):
             counts["alignment_records"] += 1
+            if not read.is_supplementary and not read.has_tag("SA"):
+                counts["records_without_split_evidence"] += 1
+                continue
             segment = segment_from_read(read, args)
             if segment is None:
                 counts["segments_rejected"] += 1
@@ -380,6 +387,7 @@ def main() -> None:
         args.summary,
         [
             {"metric": "alignment_records", "value": counts["alignment_records"]},
+            {"metric": "records_without_split_evidence", "value": counts["records_without_split_evidence"]},
             {"metric": "segments_used", "value": counts["segments_used"]},
             {"metric": "segments_rejected", "value": counts["segments_rejected"]},
             {"metric": "reads_with_usable_segments", "value": len(by_chain)},

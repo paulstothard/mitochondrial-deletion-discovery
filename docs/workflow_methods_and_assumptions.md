@@ -68,12 +68,12 @@ make reciprocal junction directions equivalent.
 ### 5. Directed split-alignment calling
 
 Usable segments are ordered on the query. Same-strand query order is normalized into
-a directed retained adjacency `L -> R`:
+a forward-reference retained adjacency `L -> R`:
 
-- for both plus- and minus-strand BAM records, the earlier stored-query segment ends
-  at retained base `L` and the later segment begins at retained base `R`. SAM/BAM
-  stores reverse-strand sequence reverse-complemented, so reversing that stored
-  query order a second time would select the reciprocal arc.
+- for plus-strand records, the earlier query segment ends at retained base `L` and
+  the later segment begins at retained base `R`;
+- for minus-strand records, the later query segment ends at retained base `L` and
+  the earlier segment begins at retained base `R`.
 
 The inferred deleted interval is the circular forward arc from `L` to `R`, excluding
 both retained breakpoint bases. `R -> L` is the complementary deletion model and has
@@ -81,9 +81,11 @@ a different exact-deletion identifier.
 
 The caller evaluates compatible query-segment pairs within one physical read
 sequence. For paired-end data, SAM read1/read2 flags define separate alignment
-chains even when both mates have the same query name. Secondary and supplementary
-alignments remain eligible by default for continuity with the established evidence
-model. These policies, MAPQ, anchor length, aligned fraction, soft clipping, and
+chains even when both mates have the same query name. Supplementary records and
+SA-tagged primary or secondary records remain eligible by default. Ordinary
+single-segment records cannot form a split chain and are discarded before
+in-memory grouping. These policies, MAPQ, anchor length, aligned fraction, soft
+clipping, and
 query overlap/gap thresholds are configuration-driven and should be evaluated in
 sensitivity analyses.
 

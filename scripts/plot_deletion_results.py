@@ -1120,7 +1120,12 @@ def pooled_endpoint_density(display_grouped: pd.DataFrame, genome_length: int, b
     return out
 
 
-def endpoint_density_hotspots(density: pd.DataFrame, genome_length: int, max_labels: int = 10) -> list[dict[str, float]]:
+def endpoint_density_hotspots(
+    density: pd.DataFrame,
+    genome_length: int,
+    max_labels: int = 8,
+    min_spacing_bp: int | None = None,
+) -> list[dict[str, float]]:
     if density.empty or "smoothed_summed_support" not in density.columns:
         return []
     work = density.copy()
@@ -1132,7 +1137,7 @@ def endpoint_density_hotspots(density: pd.DataFrame, genome_length: int, max_lab
     candidates = work[(y >= left) & (y >= right) & (work["smoothed_summed_support"] > 0)].copy()
     candidates = candidates.sort_values("smoothed_summed_support", ascending=False)
     selected: list[dict[str, float]] = []
-    min_spacing = max(250, int(genome_length * 0.015))
+    min_spacing = max(1, int(min_spacing_bp if min_spacing_bp is not None else genome_length * 0.075))
     for _, row in candidates.iterrows():
         coord = float(row["bin_midpoint"])
         if any(min(abs(coord - item["coord"]), genome_length - abs(coord - item["coord"])) < min_spacing for item in selected):
@@ -1203,13 +1208,18 @@ def endpoint_density_figure(
     ax.bar(x, raw_right, width=width, bottom=raw_left, color="#F28E2B", alpha=0.42, edgecolor="none", label=f"right endpoints, {int(bin_size)} bp bins", zorder=1)
     ax.fill_between(x, y, color="#111111", alpha=0.08, linewidth=0, zorder=2)
     ax.plot(x, y, color="#222222", linewidth=1.6, label="circular-smoothed pooled support", zorder=3)
-    full_ymax = max(1.0, float(np.nanmax(np.r_[raw, y])))
+    finite_heights = np.r_[raw, y]
+    finite_heights = finite_heights[np.isfinite(finite_heights)]
+    full_ymax = float(np.nanmax(finite_heights)) if len(finite_heights) else 0.0
+    if full_ymax <= 0:
+        full_ymax = 1.0
+    cap_note = ""
     if capped:
-        nonzero = np.r_[raw[raw > 0], y[y > 0]]
+        nonzero = finite_heights[finite_heights > 0]
         cap = float(np.nanpercentile(nonzero, 96)) if len(nonzero) else full_ymax
-        ymax = max(1.0, min(full_ymax, cap))
+        ymax = min(full_ymax, cap) if cap > 0 else full_ymax
         ax.set_ylim(0, ymax * 1.12)
-        ax.text(0.01, 0.96, f"y-axis capped at {support_tick_label(ymax)} to show secondary hotspots", ha="left", va="top", transform=ax.transAxes, fontsize=8, color="#374151")
+        cap_note = f"; y-axis capped at {support_tick_label(ymax)} to show secondary hotspots"
     else:
         ax.set_ylim(0, full_ymax * 1.12)
     ax.set_xlim(1, genome_length)
@@ -1218,7 +1228,7 @@ def endpoint_density_figure(
     ax.text(
         0.5,
         1.01,
-        f"{'support per million usable reads; ' if normalized else ''}left and right endpoints pooled; {int(bin_size)} bp bins; {int(smooth_bins) * int(bin_size)} bp circular smoothing window",
+        f"{'support per million usable reads; ' if normalized else ''}left and right endpoints pooled; {int(bin_size)} bp bins; {int(smooth_bins) * int(bin_size)} bp circular smoothing window{cap_note}",
         ha="center",
         va="bottom",
         transform=ax.transAxes,
@@ -1229,16 +1239,19 @@ def endpoint_density_figure(
     ax.grid(axis="both", color="#d9dee7", linewidth=0.65, alpha=0.55)
     ax.legend(loc="upper right", frameon=True, fontsize=8)
     label_ceiling = ax.get_ylim()[1]
-    for hotspot, label_level in endpoint_label_levels(endpoint_density_hotspots(density, genome_length), genome_length):
+    smoothing_window_bp = max(1, int(smooth_bins)) * max(1, int(bin_size))
+    label_spacing_bp = max(2 * smoothing_window_bp, int(genome_length * 0.075))
+    hotspots = endpoint_density_hotspots(density, genome_length, min_spacing_bp=label_spacing_bp)
+    for hotspot, label_level in endpoint_label_levels(hotspots, genome_length):
         coord = hotspot["coord"]
-        height = min(hotspot["height"], label_ceiling * 0.88)
+        height = min(hotspot["height"], label_ceiling * 0.80)
         half_window = max(1, int(smooth_bins) * int(bin_size) / 2)
         start = max(1, int(round(coord - half_window)))
         end = min(genome_length, int(round(coord + half_window)))
         ax.annotate(
             f"{start:,}-{end:,} bp",
             xy=(coord, height),
-            xytext=(0, 12 + label_level * 12),
+            xytext=(0, 10 + label_level * 12),
             textcoords="offset points",
             ha="center",
             va="bottom",

@@ -3,6 +3,7 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -20,6 +21,8 @@ from prepare_reads import normalized_layout
 from plot_deletion_results import (
     apply_cluster_coordinates,
     draw_feature_track_axis,
+    endpoint_density_figure,
+    endpoint_density_hotspots,
     location_features,
     mitochondrial_axis_bounds,
     pooled_endpoint_density,
@@ -202,9 +205,9 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(row["wraps_origin"], "yes")
         self.assertEqual(row["arc_assignment_method"], "alignment_directed")
 
-    def test_minimap2_minus_strand_bam_query_order_assigns_same_directed_arc(self):
-        first = caller_segment(0, 50, 951, 980, "-")
-        second = caller_segment(50, 100, 100, 149, "-")
+    def test_minimap2_minus_strand_query_order_is_normalized_to_forward_adjacency(self):
+        first = caller_segment(0, 50, 100, 149, "-")
+        second = caller_segment(50, 100, 951, 980, "-")
         row = deletion_from_segments(first, second, caller_args())
         self.assertEqual((row["left_breakpoint"], row["right_breakpoint"]), (980, 100))
         self.assertEqual(row["deleted_size"], 119)
@@ -212,12 +215,22 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(row["right_anchor_length"], 50)
 
     def test_minimap2_reverse_strand_discovers_unconfigured_linear_arc(self):
-        first = caller_segment(0, 50, 100, 149, "-")
-        second = caller_segment(50, 100, 800, 849, "-")
+        first = caller_segment(0, 50, 800, 849, "-")
+        second = caller_segment(50, 100, 100, 149, "-")
         row = deletion_from_segments(first, second, caller_args())
         self.assertEqual((row["left_breakpoint"], row["right_breakpoint"]), (149, 800))
         self.assertEqual(row["deleted_size"], 650)
         self.assertEqual(row["wraps_origin"], "no")
+
+    def test_minimap2_reverse_strand_rat_cigar_layout_selects_small_linear_arc(self):
+        first = caller_segment(0, 27, 4716, 4742, "-", read_id="SRR17380112.235192")
+        second = caller_segment(20, 49, 4339, 4367, "-", read_id="SRR17380112.235192")
+        args = caller_args(mt_length=16313)
+        args.max_query_overlap_bp = 12
+        row = deletion_from_segments(first, second, args)
+        self.assertEqual((row["left_breakpoint"], row["right_breakpoint"]), (4367, 4716))
+        self.assertEqual(row["deleted_size"], 348)
+        self.assertEqual(row["complement_deleted_size"], 15963)
 
     def test_common_deletion_style_overlapping_split_chain_is_retained(self):
         first = caller_segment(0, 64, 8419, 8482, "+", read_id="fragmentA")
@@ -242,8 +255,8 @@ class CoreTests(unittest.TestCase):
     def test_candidate_generation_keeps_mates_separate_and_deduplicates_fragment_support(self):
         mate1_first = caller_segment(0, 64, 8419, 8482, "+", read_id="fragmentA")
         mate1_second = caller_segment(54, 150, 13450, 13545, "+", read_id="fragmentA")
-        mate2_first = caller_segment(0, 64, 8419, 8482, "-", read_id="fragmentA")
-        mate2_second = caller_segment(54, 150, 13450, 13545, "-", read_id="fragmentA")
+        mate2_first = caller_segment(0, 96, 13450, 13545, "-", read_id="fragmentA")
+        mate2_second = caller_segment(86, 150, 8419, 8482, "-", read_id="fragmentA")
         for segment in (mate1_first, mate1_second):
             segment["alignment_chain_id"] = "fragmentA/1"
         for segment in (mate2_first, mate2_second):
@@ -612,6 +625,36 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(second["right_support"], 5.0)
         self.assertEqual(third["left_support"], 5.0)
         self.assertEqual(first["summed_support"], 10.0)
+
+    def test_endpoint_density_low_support_uses_observed_y_range(self):
+        calls = pd.DataFrame(
+            [{"left_breakpoint": 100, "right_breakpoint": 800, "_plot_support": 0.04}]
+        )
+        fig = endpoint_density_figure(
+            calls,
+            pd.DataFrame(),
+            {},
+            1000,
+            "density",
+            "support per million usable reads",
+            bin_size=50,
+            smooth_bins=3,
+        )
+        try:
+            self.assertGreater(fig.axes[0].get_ylim()[1], 0.04)
+            self.assertLess(fig.axes[0].get_ylim()[1], 0.1)
+        finally:
+            plt.close(fig)
+
+    def test_endpoint_density_hotspot_spacing_is_configurable(self):
+        density = pd.DataFrame(
+            {
+                "bin_midpoint": [100, 200, 300, 400, 500],
+                "smoothed_summed_support": [0, 5, 0, 4, 0],
+            }
+        )
+        hotspots = endpoint_density_hotspots(density, genome_length=1000, min_spacing_bp=250)
+        self.assertEqual([row["coord"] for row in hotspots], [200.0])
 
     def test_rainfall_y_axis_min_tracks_deletion_cutoff(self):
         self.assertEqual(rainfall_y_axis_min(pd.Series([104, 500, 5000])), 100)

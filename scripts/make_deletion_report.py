@@ -970,10 +970,17 @@ def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: p
     warnings = []
     if junctions.get("arc_assignment", "alignment_directed") == "legacy_shortest_arc":
         warnings.append("Shortest-arc mode is active. Deleted intervals are not alignment-directed in this result.")
-    if bool(mt.get("minimap2_include_secondary", True)):
-        warnings.append("Secondary alignments are eligible for primary calls, increasing alternative-placement sensitivity.")
-    if int(mt.get("minimap2_min_mapq", 0) or 0) <= 0:
-        warnings.append("MAPQ 0 alignments pass the configured remap filter; inspect primary_calls_with_min_mapq_zero in QC.")
+    secondary_calls = int(pd.to_numeric(qc.get("primary_calls_using_secondary_alignments", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
+    mapq_zero_calls = int(pd.to_numeric(qc.get("primary_calls_with_min_mapq_zero", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
+    if secondary_calls:
+        noun = "row" if secondary_calls == 1 else "rows"
+        verb = "uses" if secondary_calls == 1 else "use"
+        warnings.append(f"{secondary_calls:,} retained deletion-supporting read {noun} {verb} at least one secondary alignment; these calls have increased alternative-placement uncertainty.")
+    if mapq_zero_calls:
+        noun = "row" if mapq_zero_calls == 1 else "rows"
+        verb = "has" if mapq_zero_calls == 1 else "have"
+        pronoun = "its" if mapq_zero_calls == 1 else "their"
+        warnings.append(f"{mapq_zero_calls:,} retained deletion-supporting read {noun} {verb} minimum MAPQ 0; inspect {pronoun} read-level provenance before biological interpretation.")
     if str(dataset.get("read_technology", "unknown")).lower() == "unknown":
         warnings.append("Read technology is unknown.")
     if str(dataset.get("molecule_type", "unknown")).lower() == "unknown":
@@ -989,9 +996,9 @@ def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: p
         warning_body = '<div class="notice"><strong>Interpretation warnings:</strong><ul>' + "".join(f"<li>{html.escape(item)}</li>" for item in warnings) + "</ul></div>"
     assumptions = pd.DataFrame(
         [
-            ("Directed arc", "Stored SAM/BAM query-segment order defines retained adjacency L -> R on both strands. Reverse-strand sequence is already reverse-complemented in SAM/BAM and is not reversed again. The inferred deleted interval is the forward circular arc from retained base L to retained base R; the complementary arc is a different hypothesis."),
+            ("Directed arc", "Split segments are ordered on the query and normalized to a forward-reference retained adjacency L -> R. On the plus strand the earlier query segment supplies L; on the minus strand the later query segment supplies L. The inferred deleted interval is the forward circular arc from retained base L to retained base R; the complementary arc is a different hypothesis."),
             ("Coordinate convention", "Breakpoints are retained flanking bases. Deleted size excludes both breakpoint bases."),
-            ("Alignment chain", "Accepted split segments must come from one physical read sequence. SAM read1/read2 flags keep paired mates in separate chains; unpaired and long reads use their query name. A chain is still assumed not to be an alternative placement or library artifact."),
+            ("Alignment chain", "Accepted split segments must come from one physical read sequence. SAM read1/read2 flags keep paired mates in separate chains; unpaired and long reads use their query name. This grouping does not establish that a chain is free from alternative placement or library artifacts."),
             ("Reference", "The configured mitochondrial reference, length, contig identity, and coordinate origin are assumed appropriate for the samples."),
             ("Mapping uniqueness", "Retained evidence is assumed not to be better explained by NUMTs, repeats, or equivalent secondary placements."),
             ("Clustering", "Directed breakpoints within the configured circular slop are assumed to represent the same exact coordinate-level event."),
@@ -1002,7 +1009,7 @@ def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: p
     )
     arc_example = (
         "<h3>How The Deleted Arc Is Assigned</h3>"
-        "<p>If stored SAM/BAM query order contains reference sequence ending at retained base L followed by sequence beginning at retained base R, it supports adjacency <code>L|R</code>. "
+        "<p>After query order is normalized by alignment strand, a split read with reference sequence ending at retained base L followed by sequence beginning at retained base R supports adjacency <code>L|R</code>. "
         "The inferred deleted bases are the forward circular interval between L and R. A read supporting <code>R|L</code> represents the complementary deletion model. "
         "Reference rotation changes coordinate origin but must not reverse this directed adjacency. Conflicting directions are retained as ambiguous evidence rather than resolved by interval length.</p>"
     )
@@ -1106,7 +1113,7 @@ def method_section(config: dict, burden: pd.DataFrame) -> str:
         + first_pass_selection_explanation(config)
         + " "
         "The retained reads are then remapped to mitochondrial references with minimap2 using normal and rotated coordinate systems so deletion breakpoints near the artificial linear boundary can be recovered. "
-        "Split alignments are converted back to the original mitochondrial coordinate system while preserving query-order and strand-directed adjacency. Reciprocal directions remain distinct, and direction conflicts are handled by the configured ambiguity policy. "
+        "Split alignments are converted back to the original mitochondrial coordinate system, then query order is normalized by alignment strand into a forward-reference retained adjacency. Reciprocal directions remain distinct, and direction conflicts are handled by the configured ambiguity policy. "
         "Directed calls are consolidated across rotations, filtered, annotated against mitochondrial features, and summarized in group comparisons. "
         "Configured adjacent mitochondrial transcript pairs are labeled as transcript-compatible; when the exclusion setting is enabled, those reads are removed from deletion summaries but remain visible in QC counts. "
         "Configured deletion targets are used only for labeling and targeted summaries. They can come from explicit known-deletion entries or from coordinate-bearing configured sequence searches. "
@@ -1375,9 +1382,9 @@ def experimental_design_section(samples: pd.DataFrame, burden: pd.DataFrame, gro
     if layouts:
         note = "Read layout: " + ", ".join(layouts) + ". "
         if layouts == ["single"]:
-            note += "This dataset is single-end, so deletion evidence is based on split-read alignments; mate-pair consistency is unavailable."
+            note += "Deletion evidence is evaluated from individual split-read alignments after mitochondrial remapping; mate-pair consistency is unavailable."
         elif "paired" in layouts:
-            note += "Paired-end reads are available, but the report still summarizes split-read deletion support after mitochondrial remapping."
+            note += "Deletion evidence is evaluated from individual mate alignments after mitochondrial remapping. Mates remain separate when split-alignment chains are constructed and are not joined to form a deletion call."
         pieces.append(f'<div class="notice">{html.escape(note)}</div>')
     if {"age", "treatment"}.issubset(samples.columns):
         counts = samples.groupby(["age", "treatment"], dropna=False).size().reset_index(name="sample_count")
