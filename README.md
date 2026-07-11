@@ -118,7 +118,7 @@ Current filters and annotations include:
 Important configurable settings:
 
 - `junctions.min_anchor_length`
-- `junctions.arc_assignment`: defaults to `alignment_directed`; `legacy_shortest_arc` is available only for explicitly labelled historical reproduction.
+- `junctions.arc_assignment`: defaults to `alignment_directed`, where stored split-alignment query order determines the directed deleted interval.
 - `junctions.alignment_pairing_mode`: defaults to all compatible segment pairs within one physical read or paired-end mate. Paired-end mates are never merged into the same alignment chain.
 - `junctions.ambiguous_direction_policy`: defaults to excluding reciprocal same-read conflicts from primary summaries while retaining them for QC.
 - `junctions.min_deletion_size`
@@ -166,7 +166,7 @@ The first-pass selection mode is controlled by `mapping.first_pass_read_selectio
 
 - `whole_genome_mt_best` maps against the full genome including mtDNA and passes reads with mitochondrial best/selected evidence to mitochondrial remapping. This is the default. With `mapping.first_pass_aligner: star`, this path streams STAR output through read-name collation into the selector and does not create full-genome BAMs.
 - `nuclear_unmapped_reads` maps against a nuclear-only reference and passes unmapped reads to mitochondrial remapping. This is retained for strict depletion-style sensitivity checks, but it can discard real mitochondrial reads with NUMT-like nuclear alignments.
-- `mt_evidence_reads` is the legacy mode that maps against the full genome and scans the BAM/chimeric output for mitochondrial evidence before remapping.
+- `mt_evidence_reads` is an alternative mode that maps against the full genome and scans the BAM/chimeric output for mitochondrial evidence before remapping.
 
 The first-pass aligner is controlled by `mapping.first_pass_aligner`. In `whole_genome_mt_best` mode, the implemented choices are `star` for short-read RNA-oriented workflows and `minimap2` for long-read, DNA, or mapper-sensitivity experiments. The `mapping.keep_ambiguous_mt_nuclear_reads` setting controls whether reads whose primary evidence is mitochondrial but whose MAPQ or secondary alignments suggest nuclear ambiguity are retained for remapping.
 
@@ -254,8 +254,9 @@ Heatmaps are intentionally not part of the main report.
 - `envs/mitochondrial-deletions.yaml` - conda environment used by Snakemake rules.
 - `scripts/` - Python workflow scripts.
 - `docs/workflow_methods_and_assumptions.md` - detailed workflow stages, coordinate semantics, assumptions, and assay-specific interpretation.
+- `docs/directed_circular_deletion_workflow.md` - normative circular-arc, alignment-chain, clustering, reporting, and validation requirements.
 - `tests/` - focused unit tests for metadata, directed circular coordinates, deletion evidence, reporting helpers, and parsing.
-- `planning/` - planning notes and legacy/reference analysis material.
+- `planning/` - planning notes and reference analysis material.
 - `AGENTS.md` - local instructions for Codex or other coding agents.
 
 Generated files are intentionally ignored by git. See `.gitignore`.

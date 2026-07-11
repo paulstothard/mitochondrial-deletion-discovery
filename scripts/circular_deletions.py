@@ -49,7 +49,7 @@ def interval_length(pieces: Iterable[tuple[int, int]]) -> int:
 
 
 def canonical_breakpoints(left: int, right: int, mt_length: int) -> dict:
-    """Legacy helper that chooses the shorter arc for historical reproducibility."""
+    """Return the shorter circular interval between an unordered breakpoint pair."""
     left = int(left)
     right = int(right)
     forward_size = circular_distance(left, right, mt_length)

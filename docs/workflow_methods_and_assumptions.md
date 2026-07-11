@@ -50,7 +50,7 @@ reported deletion-calling stream.
 Alternative modes remain available:
 
 - `nuclear_unmapped_reads` retains reads not aligned to a nuclear-only reference;
-- `mt_evidence_reads` retains the legacy full-genome mitochondrial-evidence scan.
+- `mt_evidence_reads` retains the alternative full-genome mitochondrial-evidence scan.
 
 NUMTs and ambiguous nuclear/mitochondrial placements remain relevant even after
 selection.
@@ -222,8 +222,8 @@ does not replace the normal plus rotated primary design.
 
 ## Result Provenance
 
-Schema `2.1-alignment-directed-arcs-mate-aware` identifies corrected outputs with
-mate-aware alignment chains. Deliverables
+Schema `2.1-alignment-directed-arcs-mate-aware` defines alignment-directed outputs
+with mate-aware alignment chains. Deliverables
 include:
 
 - `tables/exact_deletions.tsv`;
@@ -233,6 +233,3 @@ include:
 - resolved configuration;
 - read-level evidence lists containing directed and pre-cluster coordinates,
   rotation, strand, CIGAR, flags, and alignment metrics.
-
-Historical shortest-arc results use different semantics and must not be compared as
-though their exact-deletion identifiers mean the same thing.

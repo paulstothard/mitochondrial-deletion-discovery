@@ -969,7 +969,7 @@ def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: p
     junctions = config.get("junctions", {}) or {}
     warnings = []
     if junctions.get("arc_assignment", "alignment_directed") == "legacy_shortest_arc":
-        warnings.append("Legacy shortest-arc mode is active. Deleted intervals are not alignment-directed in this result.")
+        warnings.append("Shortest-arc mode is active. Deleted intervals are not alignment-directed in this result.")
     if bool(mt.get("minimap2_include_secondary", True)):
         warnings.append("Secondary alignments are eligible for primary calls, increasing alternative-placement sensitivity.")
     if int(mt.get("minimap2_min_mapq", 0) or 0) <= 0:

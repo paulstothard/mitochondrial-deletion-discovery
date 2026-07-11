@@ -1,11 +1,9 @@
 # Circular Coordinate And Merge Audit
 
-> Historical audit note: this audit was generated for the pre-2.0 workflow, which
-> collapsed reciprocal directions by choosing the shorter circular arc. Its
-> coordinate round-trip and off-by-one checks remain useful, but its wrapping
-> conclusions do not establish the alignment-directed deleted arc. Schema
-> `2.1-alignment-directed-arcs-mate-aware` now preserves stored BAM query-order direction, keeps
-> reciprocal models separate, and reports same-read direction conflicts explicitly.
+> Scope limitation: this audit validates coordinate conversion, round trips,
+> flanking-base conventions, and representative-coordinate consistency. Its tables
+> do not independently validate directed arc assignment. Directed arc behavior is
+> defined and tested by the current workflow specification and caller tests.
 
 Dataset used for concrete examples: `human_common_deletion`. This is a targeted audit of coordinate conversion and merge behavior, not a full deletion report.
 
@@ -42,7 +40,8 @@ See `position_roundtrip.tsv` for positions near the standard origin, standard ge
 
 - Worked examples written: `5` rows in `worked_examples.tsv`.
 - Table-level coordinate checks are in `table_checks.tsv`.
-- A corrected merge check from the raw rotated calls is in `corrected_merge_table_checks.tsv`.
+- A merge check that recomputes interval properties from representative breakpoints
+  is in `corrected_merge_table_checks.tsv`.
 - Read-to-cluster coordinate comparison: 926 of 3040 read-level rows differ from the merged representative coordinates; see `read_vs_cluster_coordinate_differences.tsv`.
 
 ## Audit Conclusions
@@ -51,7 +50,9 @@ See `position_roundtrip.tsv` for positions near the standard origin, standard ge
 - Off-by-one error: no internal off-by-one inconsistency was found under the workflow's flanking-breakpoint convention. The convention itself must be stated clearly because it differs from deletion-size formulas that treat start/end as deleted-base coordinates.
 - Sorting start/end incorrectly: no evidence that converted coordinates are blindly sorted. Origin-spanning calls preserve `left_breakpoint > right_breakpoint`.
 - Negative deletion lengths: no negative sizes found in the checked tables.
-- Deleted-size consistency: the existing generated cluster table has `65` size mismatches because the previous merge code took median left, median right, and median size independently. The corrected merge code recomputes size from the representative breakpoints; the corrected check has `0` size mismatches.
+- Deleted-size consistency: the source cluster table has `65` size mismatches because
+  left breakpoint, right breakpoint, and size were summarized independently. The
+  representative-breakpoint recomputation has `0` size mismatches.
 - Origin-spanning classification: assigned from converted standard coordinates using `right <= left`, after conversion.
 - Merging before coordinate conversion: no evidence. Merge inputs already contain standard coordinates produced by the caller.
 - Double-counting support across rotations: the merge code deduplicates by `(sample, read_id)` within a breakpoint cluster. The same read can still support different clusters if it produces distinct breakpoint pairs outside the configured slop.

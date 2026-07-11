@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Historical pre-2.0 shortest-arc audit; see the audit document before reuse."""
+"""Circular coordinate and representative-merge audit; see the audit scope."""
 from __future__ import annotations
 
 import csv
