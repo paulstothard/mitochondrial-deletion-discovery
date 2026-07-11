@@ -202,10 +202,12 @@ references:
     mt_length: 16569
 ```
 
-Local `.gz` files are decompressed into the workflow reference directory. URL-based downloads remain supported for testing and for users who want the workflow to fetch references.
+Local `.gz` files are decompressed into the workflow reference directory. A configured local path takes precedence over the corresponding URL. URL-based downloads remain supported when the local path field is omitted.
 The optional `mt_reference_name` and `mt_reference_accession` fields are shown in the report so collaborators can confirm the mitochondrial coordinate standard used for deletion coordinates.
 
 Local sample FASTQs can be provided in the sample table with `fastq_1` and optional `fastq_2` columns. Both `.fastq.gz` and uncompressed `.fastq` are supported for local inputs.
+
+The repository-root `inputs/` directory is reserved for local source data and reference files. It is excluded from Git; tracked sample tables and dataset configs may point to files there without adding the input data to the repository.
 
 Resolved SRA metadata is cached under `metadata/cache/`. Once a cache file exists, metadata resolution uses it before trying NCBI again, so reruns after configuration changes do not require live NCBI metadata access.
 
@@ -323,7 +325,7 @@ results/rat_aging_muscle/rat_aging_muscle_deliverables/index.html
 The local common-deletion FASTQs are expected under:
 
 ```text
-BCLConvert_07_25_2024_15_02_59Z-752430691/
+inputs/human_common_deletion/source_bundle/
 ```
 
 The sample table is:
@@ -357,10 +359,10 @@ results/human_common_deletion/human_common_deletion_deliverables/index.html
 
 ## Run The Human Nanopore Dataset
 
-The included nanopore example expects this local single-end FASTQ:
+The nanopore dataset expects this local single-end FASTQ:
 
 ```text
-SUP_ONT_rCS.fastq
+inputs/human_nanopore/fastq/SUP_ONT_rCS.fastq
 ```
 
 The sample table and config are:

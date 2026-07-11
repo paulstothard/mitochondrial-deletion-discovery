@@ -1,4 +1,5 @@
 # Workflow outputs and large generated state
+/inputs/
 results/
 resources/
 cache/

@@ -22,6 +22,8 @@ qc:
 
 references:
   human:
+    genome_path: inputs/references/human/genome.fa
+    annotation_path: inputs/references/human/annotation.gtf
     genome_url: https://ftp.ensembl.org/pub/release-104/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz
     annotation_url: https://ftp.ensembl.org/pub/release-104/gtf/homo_sapiens/Homo_sapiens.GRCh38.104.gtf.gz
     mt_reference_name: Revised Cambridge Reference Sequence (rCRS)

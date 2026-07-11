@@ -3,6 +3,7 @@ dataset:
   title: Rat aging muscle GPA dataset
   species: rat
   bioproject: PRJNA793055
+  sra_run_table: inputs/rat_aging_muscle/metadata/sra_run_table.csv
   group_columns:
   - age
   - treatment
@@ -28,6 +29,8 @@ junctions:
   min_anchor_length: 15
 references:
   rat:
+    genome_path: inputs/references/rat/genome.fa
+    annotation_path: inputs/references/rat/annotation.gtf
     genome_url: https://ftp.ensembl.org/pub/release-104/fasta/rattus_norvegicus/dna/Rattus_norvegicus.Rnor_6.0.dna.toplevel.fa.gz
     annotation_url: https://ftp.ensembl.org/pub/release-104/gtf/rattus_norvegicus/Rattus_norvegicus.Rnor_6.0.104.gtf.gz
     mt_contig_names:
