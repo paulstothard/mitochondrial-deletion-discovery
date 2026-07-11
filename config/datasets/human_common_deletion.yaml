@@ -87,7 +87,7 @@ analysis:
       role: breakpoint_junction
   known_deletions:
   - name: human_common_mtDNA_deletion
-    left_breakpoint: 8470
+    left_breakpoint: 8469
     right_breakpoint: 13447
     deleted_size: 4977
     breakpoint_tolerance_bp: 100

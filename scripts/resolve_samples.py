@@ -303,6 +303,68 @@ def normalize_layout(value: str) -> str:
     return "single"
 
 
+def validate_dataset_inputs(dataset_cfg: dict, samples: list[dict[str, str]]) -> None:
+    dataset = dataset_cfg.get("dataset", {}) or {}
+    dataset_name = str(dataset.get("name", "")).strip()
+    species = str(dataset.get("species", "")).strip()
+    strategy = str(dataset.get("library_strategy", "unknown")).strip().lower()
+    group_columns = dataset.get("group_columns", []) or []
+
+    sample_ids = [str(row.get("sample", "")).strip() for row in samples]
+    if any(not sample for sample in sample_ids):
+        raise SystemExit("Resolved sample table contains an empty sample identifier")
+    duplicates = sorted({sample for sample in sample_ids if sample_ids.count(sample) > 1})
+    if duplicates:
+        raise SystemExit(f"Resolved sample table contains duplicate sample identifiers: {', '.join(duplicates)}")
+
+    expected_layout = ""
+    if strategy == "paired_end_short_read":
+        expected_layout = "paired"
+    elif strategy == "single_end_short_read":
+        expected_layout = "single"
+
+    for row in samples:
+        sample = str(row.get("sample", "")).strip()
+        row_dataset = str(row.get("dataset", "")).strip()
+        row_species = str(row.get("species", "")).strip()
+        if dataset_name and row_dataset != dataset_name:
+            raise SystemExit(f"Sample {sample} belongs to dataset {row_dataset!r}, expected {dataset_name!r}")
+        if species and row_species != species:
+            raise SystemExit(f"Sample {sample} has species {row_species!r}, expected {species!r}")
+        raw_layout = str(row.get("layout", "")).strip().lower()
+        if raw_layout not in {"single", "single-end", "single_end", "se", "paired", "paired-end", "paired_end", "pe"}:
+            raise SystemExit(f"Sample {sample} has missing or unsupported layout {raw_layout!r}")
+        layout = normalize_layout(raw_layout)
+        if expected_layout and layout != expected_layout:
+            raise SystemExit(
+                f"Sample {sample} has {layout}-end layout but dataset.library_strategy is {strategy}"
+            )
+        if layout == "paired" and not str(row.get("fastq_2", "")).strip():
+            raise SystemExit(f"Paired-end sample {sample} does not define fastq_2")
+        if layout == "single" and str(row.get("fastq_2", "")).strip():
+            raise SystemExit(f"Single-end sample {sample} unexpectedly defines fastq_2")
+        if not str(row.get("fastq_1", "")).strip() and not str(row.get("run_accession", "")).strip():
+            raise SystemExit(f"Sample {sample} defines neither fastq_1 nor run_accession")
+        empty_groups = [column for column in group_columns if not str(row.get(column, "")).strip()]
+        if empty_groups:
+            raise SystemExit(f"Sample {sample} has empty grouping values: {', '.join(empty_groups)}")
+
+    reference = (dataset_cfg.get("references", {}) or {}).get(species, {}) or {}
+    mt_length = int(reference.get("mt_length", 0) or 0)
+    for target in (dataset_cfg.get("analysis", {}) or {}).get("known_deletions", []) or []:
+        values = [target.get(key) for key in ("left_breakpoint", "right_breakpoint", "deleted_size")]
+        if mt_length <= 0 or any(value in {None, ""} for value in values):
+            continue
+        left, right, configured_size = map(int, values)
+        implied_size = right - left - 1 if right > left else mt_length - left + right - 1
+        if configured_size != implied_size:
+            name = str(target.get("name", "unnamed configured deletion"))
+            raise SystemExit(
+                f"Configured deletion {name!r} has deleted_size {configured_size}, but retained "
+                f"breakpoints {left}->{right} imply {implied_size} bases on mtDNA length {mt_length}"
+            )
+
+
 def make_sample_id(dataset: str, row: dict[str, str], template: str | None) -> str:
     age = derive_age(row)
     treatment = derive_treatment(row)
@@ -441,6 +503,7 @@ def main() -> None:
     missing_groups = [col for col in group_columns if col not in samples[0]]
     if missing_groups:
         raise SystemExit(f"Resolved sample table missing group columns: {', '.join(missing_groups)}")
+    validate_dataset_inputs(dataset_cfg, samples)
 
     fieldnames = [
         "sample",

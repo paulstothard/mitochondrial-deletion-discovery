@@ -1183,7 +1183,7 @@ def method_section(config: dict, burden: pd.DataFrame) -> str:
                 "Adapter/QC trimming",
                 "disabled by dataset configuration"
                 if qc.get("trim_reads") is False
-                else f"fastp if adapter rate > {qc.get('trim_if_adapter_rate_above_percent', '')}% or Q30 < {qc.get('trim_if_q30_below_percent', '')}%",
+                else "fastp enabled by dataset configuration",
             ),
             ("First-pass aligner", mapping.get("first_pass_aligner", "star")),
             ("First-pass read selection", mapping.get("first_pass_read_selection", mt.get("input_strategy", "mt_evidence_reads"))),

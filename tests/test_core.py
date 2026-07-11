@@ -43,13 +43,14 @@ from make_deletion_report import (
     assumptions_section,
     exact_deletion_display_table,
     exact_deletion_support_read_links,
+    method_section,
     potential_alternative_explanations,
     sequence_remap_overlap_table,
     table_html,
     write_configured_sequence_read_lists,
     write_exact_deletion_read_lists,
 )
-from resolve_samples import derive_age, derive_replicate, derive_treatment, make_sample_id
+from resolve_samples import derive_age, derive_replicate, derive_treatment, make_sample_id, validate_dataset_inputs
 from search_known_sequences import compiled_searches, match_multi_required, match_single, sample_from_fastq, scan_fastq_for_searches
 from select_whole_genome_mt_from_sam import classify_group
 
@@ -763,7 +764,7 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn("RNA", unknown_applies)
         self.assertNotIn("DNA", unknown_applies)
 
-    def test_report_assumptions_render_artifact_table_before_arc_explanation(self):
+    def test_report_assumptions_render_alternatives_before_arc_explanation(self):
         report_html = assumptions_section(
             {"dataset": {"read_technology": "illumina", "molecule_type": "rna", "assay_type": "bulk_rna_seq"}},
             pd.DataFrame(),
@@ -777,6 +778,64 @@ class CoreTests(unittest.TestCase):
         self.assertIn("Short or non-unique split anchors", report_html)
         self.assertNotIn("Basecalling errors and difficult sequence contexts", report_html)
         self.assertLess(report_html.index(alternatives_heading), report_html.index(arc_heading))
+
+    def test_dataset_input_validation_rejects_layout_and_coordinate_mismatches(self):
+        config = {
+            "dataset": {
+                "name": "example",
+                "species": "human",
+                "library_strategy": "single_end_short_read",
+                "group_columns": ["condition"],
+            },
+            "references": {"human": {"mt_length": 16569}},
+            "analysis": {
+                "known_deletions": [
+                    {
+                        "name": "consistent",
+                        "left_breakpoint": 8469,
+                        "right_breakpoint": 13447,
+                        "deleted_size": 4977,
+                    }
+                ]
+            },
+        }
+        sample = {
+            "sample": "s1",
+            "dataset": "example",
+            "species": "human",
+            "layout": "single",
+            "fastq_1": "reads.fastq.gz",
+            "fastq_2": "",
+            "condition": "case",
+        }
+        validate_dataset_inputs(config, [sample])
+
+        paired_config = {**config, "dataset": {**config["dataset"], "library_strategy": "paired_end_short_read"}}
+        with self.assertRaisesRegex(SystemExit, "single-end layout"):
+            validate_dataset_inputs(paired_config, [sample])
+
+        bad_target_config = {
+            **config,
+            "analysis": {
+                "known_deletions": [
+                    {
+                        "name": "inconsistent",
+                        "left_breakpoint": 8470,
+                        "right_breakpoint": 13447,
+                        "deleted_size": 4977,
+                    }
+                ]
+            },
+        }
+        with self.assertRaisesRegex(SystemExit, "imply 4976 bases"):
+            validate_dataset_inputs(bad_target_config, [sample])
+
+    def test_report_describes_boolean_trimming_behavior(self):
+        enabled = method_section({"dataset": {}, "qc": {"trim_reads": True}}, pd.DataFrame())
+        disabled = method_section({"dataset": {}, "qc": {"trim_reads": False}}, pd.DataFrame())
+        self.assertIn("fastp enabled by dataset configuration", enabled)
+        self.assertIn("disabled by dataset configuration", disabled)
+        self.assertNotIn("adapter rate", enabled)
 
     def test_known_sequence_summary_links_matching_reads_to_read_names(self):
         import pandas as pd

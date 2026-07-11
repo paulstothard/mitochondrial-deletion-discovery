@@ -297,21 +297,35 @@ Snakemake can also create per-rule environments under `.snakemake/conda/` when `
 
 ## Run The Rat GPA Dataset
 
+This dataset contains 22 single-end Illumina RNA-seq runs from quadriceps muscle,
+split across 18- and 34-month animals and Control and GPA treatment groups. The
+fixed sample table is `metadata/rat_aging_muscle.samples.tsv`; it uses direct ENA
+FASTQ URLs, so this dataset requires approximately 34 GB of network downloads for
+a clean run.
+
 Dry-run first:
 
 ```bash
-snakemake --use-conda --cores 8 \
+snakemake results/rat_aging_muscle/rat_aging_muscle_deliverables/DELIVERABLES_COMPLETE.txt \
+  --use-conda --cores 8 \
   --resources download=2 \
   --configfile config/datasets/rat_aging_muscle.yaml \
+  --rerun-triggers mtime \
+  --rerun-incomplete \
+  --printshellcmds \
   --dry-run
 ```
 
 Then run:
 
 ```bash
-snakemake --use-conda --cores 8 \
+snakemake results/rat_aging_muscle/rat_aging_muscle_deliverables/DELIVERABLES_COMPLETE.txt \
+  --use-conda --cores 8 \
   --resources download=2 \
-  --configfile config/datasets/rat_aging_muscle.yaml
+  --configfile config/datasets/rat_aging_muscle.yaml \
+  --rerun-triggers mtime \
+  --rerun-incomplete \
+  --printshellcmds
 ```
 
 Main report:
@@ -339,22 +353,69 @@ These can be raw BCLConvert FASTQs. The normal workflow stages local FASTQs, run
 Dry-run first:
 
 ```bash
-snakemake --use-conda --cores 8 \
+snakemake results/human_common_deletion/human_common_deletion_deliverables/DELIVERABLES_COMPLETE.txt \
+  --use-conda --cores 8 \
   --configfile config/datasets/human_common_deletion.yaml \
+  --rerun-triggers mtime \
+  --rerun-incomplete \
+  --printshellcmds \
   --dry-run
 ```
 
 Then run:
 
 ```bash
-snakemake --use-conda --cores 8 \
-  --configfile config/datasets/human_common_deletion.yaml
+snakemake results/human_common_deletion/human_common_deletion_deliverables/DELIVERABLES_COMPLETE.txt \
+  --use-conda --cores 8 \
+  --configfile config/datasets/human_common_deletion.yaml \
+  --rerun-triggers mtime \
+  --rerun-incomplete \
+  --printshellcmds
 ```
 
 Main report:
 
 ```text
 results/human_common_deletion/human_common_deletion_deliverables/index.html
+```
+
+## Run The Matched Human Bulk RNA-seq Dataset
+
+This dataset contains one paired-end Illumina bulk RNA-seq sample matched to the
+Nanopore dataset. Its sample table and config are:
+
+```text
+metadata/human_bulkseq_matched_nanopore.samples.tsv
+config/datasets/human_bulkseq_matched_nanopore.yaml
+```
+
+Dry-run first:
+
+```bash
+snakemake results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_deliverables/DELIVERABLES_COMPLETE.txt \
+  --use-conda --cores 8 \
+  --configfile config/datasets/human_bulkseq_matched_nanopore.yaml \
+  --rerun-triggers mtime \
+  --rerun-incomplete \
+  --printshellcmds \
+  --dry-run
+```
+
+Then run:
+
+```bash
+snakemake results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_deliverables/DELIVERABLES_COMPLETE.txt \
+  --use-conda --cores 8 \
+  --configfile config/datasets/human_bulkseq_matched_nanopore.yaml \
+  --rerun-triggers mtime \
+  --rerun-incomplete \
+  --printshellcmds
+```
+
+Main report:
+
+```text
+results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_deliverables/index.html
 ```
 
 ## Run The Human Nanopore Dataset
@@ -383,6 +444,7 @@ snakemake results/human_nanopore/human_nanopore_deliverables/DELIVERABLES_COMPLE
   --configfile config/datasets/human_nanopore.yaml \
   --rerun-triggers mtime \
   --rerun-incomplete \
+  --printshellcmds \
   --dry-run
 ```
 
@@ -394,7 +456,8 @@ snakemake results/human_nanopore/human_nanopore_deliverables/DELIVERABLES_COMPLE
   --cores 8 \
   --configfile config/datasets/human_nanopore.yaml \
   --rerun-triggers mtime \
-  --rerun-incomplete
+  --rerun-incomplete \
+  --printshellcmds
 ```
 
 Main report:

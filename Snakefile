@@ -218,6 +218,11 @@ checkpoint resolve_samples:
     input:
         defaults="config/defaults.yaml",
         dataset_config=DATASET_CONFIG,
+        sample_source=lambda wildcards: (
+            CFG["dataset"].get("sample_table")
+            or CFG["dataset"].get("sra_run_table")
+            or []
+        ),
     output:
         samples=RESOLVED_SAMPLES,
         config=RESOLVED_CONFIG,

@@ -32,9 +32,8 @@ downloads:
   sra_cache_dir: resources/sra-cache
 qc:
   run_fastqc: true
+  trim_reads: true
   fastp_threads: 2
-  trim_if_adapter_rate_above_percent: 0.5
-  trim_if_q30_below_percent: 75
   minimum_length_after_trimming: 35
   fastp_extra: ''
 mapping:
