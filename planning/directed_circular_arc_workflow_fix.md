@@ -2,26 +2,57 @@
 
 ## Status
 
-Implemented on 2026-07-10. The corrected workflow uses result schema
-`2.0-alignment-directed-arcs`. The human nanopore results were rebuilt downstream
-from the existing normal and half-rotation BAMs after a dry-run confirmed that no
-download, trimming, first-pass mapping, or mitochondrial-remapping rules were
-scheduled.
+Implemented on 2026-07-10. A release-blocking regression was then found in the first
+implementation: paired-end mates sharing a BAM query name were merged before
+adjacent-segment selection, causing genuine split chains to be discarded. The same
+implementation also changed secondary-alignment and pairing defaults even though
+those policies were outside the circular-arc correction. The repair keeps mates in
+separate SAM-flag-defined chains and restores the established configurable evidence
+defaults. The corrected workflow uses result schema
+`2.1-alignment-directed-arcs-mate-aware`. Human common-deletion, human nanopore,
+matched human bulk-sequencing, and rat aging-muscle results were rebuilt downstream
+from the existing normal and half-rotation BAMs after dry-runs confirmed that no
+download, trimming, first-pass mapping, mitochondrial-remapping, or configured
+sequence-search rules were scheduled.
 
-Validation completed during implementation:
+Validation completed during the repaired implementation:
 
-- 52 unit/regression tests passed;
+- 59 unit/regression tests passed, including paired-end shared-query-name,
+  reverse-strand BAM-order, common-deletion-style, and arbitrary-breakpoint fixtures;
 - reciprocal directions remain separate and directed arcs longer than half the
   mitochondrial genome are retained;
-- secondary alignments are excluded from primary calls by default;
+- secondary-alignment and compatible-pair policies remain configuration-driven and
+  retain the established defaults rather than being changed by the arc correction;
 - same-read reciprocal conflicts within configured breakpoint slop are retained as
   ambiguous evidence and excluded by default;
 - tables, matrices, plots, HTML report, read lists, methods provenance, and data
   dictionary were regenerated;
 - regenerated location, size, and affected-feature plots and the rendered report were
   inspected;
+- the common-deletion positive control was restored at the same two archived exact
+  breakpoint clusters and support counts: `8467 -> 13450` with 12 fragments and
+  `8482 -> 13450` with 113 fragments, for 125 total remap-supported fragments;
 - the previous nanopore deliverable was preserved as
   `human_nanopore_legacy_shortest_arc_deliverables_20260710`.
+
+Final archived-versus-repaired exact-call summaries are:
+
+| Dataset | Archived calls / support / wraps | Repaired calls / support / wraps |
+| --- | ---: | ---: |
+| Human common deletion | 727 / 3,040 / 61 | 354 / 941 / 50 |
+| Human matched bulk sequencing | 3,486 / 28,136 / 221 | 1,342 / 10,371 / 415 |
+| Human nanopore | 10,129 / 110,576 / 3,617 | 9,840 / 106,843 / 2,250 |
+| Rat aging muscle | 13 / 109 / 0 | 2 / 4 / 0 |
+
+These totals are not expected to match. Archived circular calls used shortest-arc
+semantics, and paired-end archived calls could also combine alignments from opposite
+mates that shared a query name. In the matched bulk dataset, support assigned to
+100-300 bp calls fell from 15,506 to 612 after mate separation, while the major
+multi-kilobase discovery signals and the 52-fragment `8482 -> 13450` common-deletion
+signal remained. A traced archived rat 113 bp call was instead a single-end
+reverse-strand primary/supplementary chain whose stored BAM order supported the
+complementary near-genome-length arc; it was removed by the configured 16 kb maximum
+after the second-reversal error was corrected.
 
 Candidate-specific synthetic `L|R`/`R|L` template remapping and doubled-reference
 diagnostics were not launched automatically across all corrected calls. They remain
@@ -75,9 +106,11 @@ As a result:
 
 ### Directed junction
 
-After segments are ordered on the query and normalized for strand, a junction
+After segments are ordered using stored SAM/BAM query coordinates, a junction
 `L -> R` means that retained reference base `L` is adjacent to retained reference
-base `R` in the read-supported model.
+base `R` in the read-supported model. Reverse-strand sequence is already
+reverse-complemented in SAM/BAM, so its stored query order must not be reversed a
+second time.
 
 Using the workflow's existing flanking-base coordinate convention:
 
@@ -121,8 +154,8 @@ burden by default while remaining available in QC and evidence tables.
 
 ### 2. Correct the minimap2 deletion caller
 
-- Preserve the existing query-order and strand normalization as the basis for the
-  directed junction, after adding targeted tests for both strands.
+- Use stored SAM/BAM query order as the basis for the directed junction on both
+  strands, after adding targeted tests for both strands.
 - Remove shortest-arc selection from `deletion_from_segments()`.
 - Calculate `deleted_size`, `wraps_origin`, and `deleted_interval` directly from the
   directed pair.
@@ -145,13 +178,15 @@ burden by default while remaining available in QC and evidence tables.
   - MAPQ;
   - available alignment-score, edit-distance, `SA`, and minimap2 tags.
 
-### 3. Harden split-alignment evidence in a separate change
+### 3. Evaluate split-alignment hardening in a separate change
 
-- Pair adjacent query segments instead of testing every pair of compatible segments.
+- Never merge paired-end mates into one alignment chain; use SAM read1/read2 flags
+  even when both mates share a query name.
+- Keep all-compatible pairing as the established default within each physical read
+  or mate. Evaluate adjacent-only pairing as a separately labelled sensitivity mode.
 - Prefer coherent primary/supplementary chains.
-- Do not include secondary alignments in primary calls by default.
-- Keep secondary-alignment sensitivity analysis configuration-driven and label its
-  results clearly.
+- Keep secondary-alignment sensitivity analysis configuration-driven and do not
+  change its established default as part of an arc-only correction.
 - Require consistent read identity, strand, query ordering, and acceptable query
   overlap/gap.
 - Add configurable alignment-score and MAPQ requirements suitable for the selected

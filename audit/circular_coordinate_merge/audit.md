@@ -4,7 +4,7 @@
 > collapsed reciprocal directions by choosing the shorter circular arc. Its
 > coordinate round-trip and off-by-one checks remain useful, but its wrapping
 > conclusions do not establish the alignment-directed deleted arc. Schema
-> `2.0-alignment-directed-arcs` now preserves query-order/strand direction, keeps
+> `2.1-alignment-directed-arcs-mate-aware` now preserves stored BAM query-order direction, keeps
 > reciprocal models separate, and reports same-read direction conflicts explicitly.
 
 Dataset used for concrete examples: `human_common_deletion`. This is a targeted audit of coordinate conversion and merge behavior, not a full deletion report.

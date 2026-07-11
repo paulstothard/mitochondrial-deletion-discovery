@@ -760,7 +760,7 @@ rule parse_split_alignments:
         include_secondary=bool_flag("mt_realign", "minimap2_include_secondary", "--include-secondary"),
         include_supplementary=bool_flag("mt_realign", "minimap2_include_supplementary", "--include-supplementary"),
         arc_assignment=CFG["junctions"].get("arc_assignment", "alignment_directed"),
-        pairing_mode=CFG["junctions"].get("alignment_pairing_mode", "adjacent"),
+        pairing_mode=CFG["junctions"].get("alignment_pairing_mode", "all_compatible"),
         ambiguous_direction_policy=CFG["junctions"].get("ambiguous_direction_policy", "exclude"),
     conda:
         "envs/mitochondrial-deletions.yaml"
@@ -790,7 +790,7 @@ rule cluster_junctions:
         min_support=CFG["junctions"]["min_split_read_support"],
         mt_length=MT_LENGTH,
         ambiguous_direction_policy=CFG["junctions"].get("ambiguous_direction_policy", "exclude"),
-        result_schema_version=CFG["project"].get("result_schema_version", "2.0-alignment-directed-arcs"),
+        result_schema_version=CFG["project"].get("result_schema_version", "2.1-alignment-directed-arcs-mate-aware"),
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:

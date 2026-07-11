@@ -119,7 +119,7 @@ Important configurable settings:
 
 - `junctions.min_anchor_length`
 - `junctions.arc_assignment`: defaults to `alignment_directed`; `legacy_shortest_arc` is available only for explicitly labelled historical reproduction.
-- `junctions.alignment_pairing_mode`: defaults to adjacent query segments rather than all compatible segment pairs.
+- `junctions.alignment_pairing_mode`: defaults to all compatible segment pairs within one physical read or paired-end mate. Paired-end mates are never merged into the same alignment chain.
 - `junctions.ambiguous_direction_policy`: defaults to excluding reciprocal same-read conflicts from primary summaries while retaining them for QC.
 - `junctions.min_deletion_size`
 - `junctions.max_deletion_size`

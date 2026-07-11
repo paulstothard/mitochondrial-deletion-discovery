@@ -22,6 +22,18 @@ def read_key(read: pysam.AlignedSegment) -> str:
     return read.query_name.removesuffix("/1").removesuffix("/2")
 
 
+def alignment_chain_key(read: pysam.AlignedSegment) -> str:
+    """Identify one physical read sequence without merging paired-end mates."""
+    fragment = read_key(read)
+    if read.is_read1:
+        return f"{fragment}/1"
+    if read.is_read2:
+        return f"{fragment}/2"
+    if read.query_name.endswith(("/1", "/2")):
+        return read.query_name
+    return fragment
+
+
 def aligned_query_fraction(read: pysam.AlignedSegment) -> float:
     length = read.infer_query_length(always=True) or len(read.query_sequence or "") or 0
     if length <= 0:
@@ -67,6 +79,7 @@ def segment_from_read(read: pysam.AlignedSegment, args: argparse.Namespace) -> d
     return {
         "read_id": read_key(read),
         "query_name": read.query_name,
+        "alignment_chain_id": alignment_chain_key(read),
         "query_start": q_start,
         "query_end": q_end,
         "anchor_length": anchor,
@@ -105,20 +118,16 @@ def deletion_from_segments(a: dict, b: dict, args: argparse.Namespace) -> dict |
         return None
     query_first = a
     query_second = b
-    if a["strand"] == "+":
-        left_segment = a
-        right_segment = b
-        directed_left = a["ref_end"]
-        directed_right = b["ref_start"]
-        raw_left = a["ref_end_raw"]
-        raw_right = b["ref_start_raw"]
-    else:
-        left_segment = b
-        right_segment = a
-        directed_left = b["ref_end"]
-        directed_right = a["ref_start"]
-        raw_left = b["ref_end_raw"]
-        raw_right = a["ref_start_raw"]
+
+    # SAM/BAM stores reverse-strand SEQ reverse-complemented, so CIGAR query
+    # coordinates advance with the reference for same-strand split records.
+    # Reversing the segment order again would select the reciprocal arc.
+    left_segment = a
+    right_segment = b
+    directed_left = a["ref_end"]
+    directed_right = b["ref_start"]
+    raw_left = a["ref_end_raw"]
+    raw_right = b["ref_start_raw"]
 
     directed = directed_breakpoints(directed_left, directed_right, args.mt_length)
     if args.arc_assignment == "legacy_shortest_arc":
@@ -165,7 +174,7 @@ def deletion_from_segments(a: dict, b: dict, args: argparse.Namespace) -> dict |
         "source": "minimap2_split_alignment",
         "rotation_name": args.rotation_name,
         "rotation_start": args.rotation_start,
-        "alignment_chain_id": f"{a['read_id']}:{args.rotation_name}",
+        "alignment_chain_id": f"{a.get('alignment_chain_id', a['read_id'])}:{args.rotation_name}",
         "raw_left_breakpoint": raw_left,
         "raw_right_breakpoint": raw_right,
         "left_mapq": left_segment["mapq"],
@@ -213,6 +222,26 @@ def write_rows(path: str, rows: list[dict], fieldnames: list[str]) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
+
+
+def candidate_rows_from_chains(by_chain: dict[str, list[dict]], args: argparse.Namespace) -> list[dict]:
+    candidate_rows = []
+    seen = set()
+    for segments in by_chain.values():
+        if len(segments) < 2:
+            continue
+        segments = sorted(segments, key=lambda item: (item["query_start"], item["query_end"], item["ref_start_raw"]))
+        pairs = zip(segments, segments[1:]) if args.pairing_mode == "adjacent" else combinations(segments, 2)
+        for a, b in pairs:
+            row = deletion_from_segments(a, b, args)
+            if row is None:
+                continue
+            key = (row["read_id"], row["deletion_id"], row["rotation_name"])
+            if key in seen:
+                continue
+            seen.add(key)
+            candidate_rows.append(row)
+    return candidate_rows
 
 
 FIELDS = [
@@ -304,14 +333,15 @@ def main() -> None:
     parser.add_argument("--include-secondary", action="store_true")
     parser.add_argument("--include-supplementary", action="store_true")
     parser.add_argument("--arc-assignment", choices=["alignment_directed", "legacy_shortest_arc"], default="alignment_directed")
-    parser.add_argument("--pairing-mode", choices=["adjacent", "all_compatible"], default="adjacent")
+    parser.add_argument("--pairing-mode", choices=["adjacent", "all_compatible"], default="all_compatible")
     parser.add_argument("--ambiguous-direction-policy", choices=["exclude", "include"], default="exclude")
     parser.add_argument("--candidates", required=True)
     parser.add_argument("--filtered", required=True)
     parser.add_argument("--summary", required=True)
     args = parser.parse_args()
 
-    by_read: dict[str, list[dict]] = defaultdict(list)
+    by_chain: dict[str, list[dict]] = defaultdict(list)
+    fragments_with_segments = set()
     counts = Counter()
     with pysam.AlignmentFile(args.bam, "rb") as bam:
         for read in bam.fetch(until_eof=True):
@@ -321,24 +351,10 @@ def main() -> None:
                 counts["segments_rejected"] += 1
                 continue
             counts["segments_used"] += 1
-            by_read[segment["read_id"]].append(segment)
+            by_chain[segment["alignment_chain_id"]].append(segment)
+            fragments_with_segments.add(segment["read_id"])
 
-    candidate_rows = []
-    seen = set()
-    for read_id, segments in by_read.items():
-        if len(segments) < 2:
-            continue
-        segments = sorted(segments, key=lambda item: (item["query_start"], item["query_end"], item["ref_start_raw"]))
-        pairs = zip(segments, segments[1:]) if args.pairing_mode == "adjacent" else combinations(segments, 2)
-        for a, b in pairs:
-            row = deletion_from_segments(a, b, args)
-            if row is None:
-                continue
-            key = (read_id, row["deletion_id"], row["rotation_name"])
-            if key in seen:
-                continue
-            seen.add(key)
-            candidate_rows.append(row)
+    candidate_rows = candidate_rows_from_chains(by_chain, args)
 
     by_read_pair: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
     for row in candidate_rows:
@@ -366,7 +382,8 @@ def main() -> None:
             {"metric": "alignment_records", "value": counts["alignment_records"]},
             {"metric": "segments_used", "value": counts["segments_used"]},
             {"metric": "segments_rejected", "value": counts["segments_rejected"]},
-            {"metric": "reads_with_usable_segments", "value": len(by_read)},
+            {"metric": "reads_with_usable_segments", "value": len(by_chain)},
+            {"metric": "fragments_with_usable_segments", "value": len(fragments_with_segments)},
             {"metric": "candidate_deletion_records", "value": len(candidate_rows)},
             {"metric": "ambiguous_direction_records", "value": len(candidate_rows) - len(filtered_rows)},
             {"metric": "deletion_supporting_records", "value": len(filtered_rows)},

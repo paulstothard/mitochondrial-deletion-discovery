@@ -11,7 +11,7 @@ from classify_mt_reads import classify_alignment, reverse_complement
 from annotate_junctions import append_configured_regions, apply_feature_aliases, biological_features
 from analyze_deletions import deduplicate_evidence_reads, expected_transcript_mask
 from circular_deletions import affected_feature_impact, configured_deletion_targets, directed_breakpoints, known_deletion_match, normalize_pos as normalize_rotated_pos
-from call_minimap2_deletions import deletion_from_segments
+from call_minimap2_deletions import alignment_chain_key, candidate_rows_from_chains, deletion_from_segments
 from cluster_junctions import canonical_junction
 from consolidate_deletions import cluster_rows, split_direction_conflicts
 from make_rotated_mt_reference import rotate_sequence
@@ -84,10 +84,18 @@ class FakeWholeGenomeRead:
         self.query_sequence = "A" * query_length
 
 
+class FakeChainRead:
+    def __init__(self, query_name, read1=False, read2=False):
+        self.query_name = query_name
+        self.is_read1 = read1
+        self.is_read2 = read2
+
+
 def caller_segment(query_start, query_end, ref_start, ref_end, strand="+", read_id="readA", rotation="normal"):
     return {
         "read_id": read_id,
         "query_name": read_id,
+        "alignment_chain_id": read_id,
         "query_start": query_start,
         "query_end": query_end,
         "anchor_length": query_end - query_start,
@@ -124,6 +132,7 @@ def caller_args(mt_length=1000):
         max_query_overlap_bp=5,
         max_query_gap_bp=5,
         arc_assignment="alignment_directed",
+        pairing_mode="all_compatible",
     )
 
 
@@ -193,14 +202,80 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(row["wraps_origin"], "yes")
         self.assertEqual(row["arc_assignment_method"], "alignment_directed")
 
-    def test_minimap2_minus_strand_query_order_assigns_same_directed_arc(self):
-        first = caller_segment(0, 50, 100, 149, "-")
-        second = caller_segment(50, 100, 951, 980, "-")
+    def test_minimap2_minus_strand_bam_query_order_assigns_same_directed_arc(self):
+        first = caller_segment(0, 50, 951, 980, "-")
+        second = caller_segment(50, 100, 100, 149, "-")
         row = deletion_from_segments(first, second, caller_args())
         self.assertEqual((row["left_breakpoint"], row["right_breakpoint"]), (980, 100))
         self.assertEqual(row["deleted_size"], 119)
         self.assertEqual(row["left_anchor_length"], 50)
         self.assertEqual(row["right_anchor_length"], 50)
+
+    def test_minimap2_reverse_strand_discovers_unconfigured_linear_arc(self):
+        first = caller_segment(0, 50, 100, 149, "-")
+        second = caller_segment(50, 100, 800, 849, "-")
+        row = deletion_from_segments(first, second, caller_args())
+        self.assertEqual((row["left_breakpoint"], row["right_breakpoint"]), (149, 800))
+        self.assertEqual(row["deleted_size"], 650)
+        self.assertEqual(row["wraps_origin"], "no")
+
+    def test_common_deletion_style_overlapping_split_chain_is_retained(self):
+        first = caller_segment(0, 64, 8419, 8482, "+", read_id="fragmentA")
+        second = caller_segment(54, 150, 13450, 13545, "+", read_id="fragmentA")
+        args = caller_args(mt_length=16569)
+        args.max_query_overlap_bp = 10
+        row = deletion_from_segments(first, second, args)
+        self.assertEqual((row["left_breakpoint"], row["right_breakpoint"]), (8482, 13450))
+        self.assertEqual(row["deleted_size"], 4967)
+
+    def test_alignment_chain_key_separates_mates_with_shared_bam_query_name(self):
+        read1 = FakeChainRead("fragmentA", read1=True)
+        read2 = FakeChainRead("fragmentA", read2=True)
+        self.assertEqual(alignment_chain_key(read1), "fragmentA/1")
+        self.assertEqual(alignment_chain_key(read2), "fragmentA/2")
+        self.assertNotEqual(alignment_chain_key(read1), alignment_chain_key(read2))
+
+    def test_alignment_chain_key_preserves_unpaired_read_identity(self):
+        read = FakeChainRead("nanopore_read_42")
+        self.assertEqual(alignment_chain_key(read), "nanopore_read_42")
+
+    def test_candidate_generation_keeps_mates_separate_and_deduplicates_fragment_support(self):
+        mate1_first = caller_segment(0, 64, 8419, 8482, "+", read_id="fragmentA")
+        mate1_second = caller_segment(54, 150, 13450, 13545, "+", read_id="fragmentA")
+        mate2_first = caller_segment(0, 64, 8419, 8482, "-", read_id="fragmentA")
+        mate2_second = caller_segment(54, 150, 13450, 13545, "-", read_id="fragmentA")
+        for segment in (mate1_first, mate1_second):
+            segment["alignment_chain_id"] = "fragmentA/1"
+        for segment in (mate2_first, mate2_second):
+            segment["alignment_chain_id"] = "fragmentA/2"
+        args = caller_args(mt_length=16569)
+        args.max_query_overlap_bp = 10
+        rows = candidate_rows_from_chains(
+            {"fragmentA/1": [mate1_first, mate1_second], "fragmentA/2": [mate2_first, mate2_second]},
+            args,
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["read_id"], "fragmentA")
+        self.assertEqual((rows[0]["left_breakpoint"], rows[0]["right_breakpoint"]), (8482, 13450))
+
+    def test_candidate_generation_never_joins_single_segments_from_opposite_mates(self):
+        mate1 = caller_segment(0, 50, 1200, 1249, "+", read_id="fragmentA")
+        mate2 = caller_segment(50, 100, 9200, 9249, "+", read_id="fragmentA")
+        mate1["alignment_chain_id"] = "fragmentA/1"
+        mate2["alignment_chain_id"] = "fragmentA/2"
+        rows = candidate_rows_from_chains(
+            {"fragmentA/1": [mate1], "fragmentA/2": [mate2]},
+            caller_args(mt_length=16569),
+        )
+        self.assertEqual(rows, [])
+
+    def test_candidate_generation_discovers_arbitrary_non_target_junction(self):
+        first = caller_segment(0, 50, 1200, 1249, "+", read_id="discovery_read")
+        second = caller_segment(50, 100, 9200, 9249, "+", read_id="discovery_read")
+        rows = candidate_rows_from_chains({"discovery_read": [first, second]}, caller_args(mt_length=16569))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["left_breakpoint"], rows[0]["right_breakpoint"]), (1249, 9200))
+        self.assertEqual(rows[0]["deleted_size"], 7950)
 
     def test_reciprocal_directed_calls_do_not_cluster_together(self):
         rows = [

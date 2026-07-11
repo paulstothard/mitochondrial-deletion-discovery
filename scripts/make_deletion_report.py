@@ -970,7 +970,7 @@ def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: p
     warnings = []
     if junctions.get("arc_assignment", "alignment_directed") == "legacy_shortest_arc":
         warnings.append("Legacy shortest-arc mode is active. Deleted intervals are not alignment-directed in this result.")
-    if bool(mt.get("minimap2_include_secondary", False)):
+    if bool(mt.get("minimap2_include_secondary", True)):
         warnings.append("Secondary alignments are eligible for primary calls, increasing alternative-placement sensitivity.")
     if int(mt.get("minimap2_min_mapq", 0) or 0) <= 0:
         warnings.append("MAPQ 0 alignments pass the configured remap filter; inspect primary_calls_with_min_mapq_zero in QC.")
@@ -989,9 +989,9 @@ def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: p
         warning_body = '<div class="notice"><strong>Interpretation warnings:</strong><ul>' + "".join(f"<li>{html.escape(item)}</li>" for item in warnings) + "</ul></div>"
     assumptions = pd.DataFrame(
         [
-            ("Directed arc", "After strand normalization, query segment order defines retained adjacency L -> R. The inferred deleted interval is the forward circular arc from retained base L to retained base R; the complementary arc is a different hypothesis."),
+            ("Directed arc", "Stored SAM/BAM query-segment order defines retained adjacency L -> R on both strands. Reverse-strand sequence is already reverse-complemented in SAM/BAM and is not reversed again. The inferred deleted interval is the forward circular arc from retained base L to retained base R; the complementary arc is a different hypothesis."),
             ("Coordinate convention", "Breakpoints are retained flanking bases. Deleted size excludes both breakpoint bases."),
-            ("Alignment chain", "Accepted split segments are assumed to represent one physical read adjacency rather than an alternative placement or library artifact."),
+            ("Alignment chain", "Accepted split segments must come from one physical read sequence. SAM read1/read2 flags keep paired mates in separate chains; unpaired and long reads use their query name. A chain is still assumed not to be an alternative placement or library artifact."),
             ("Reference", "The configured mitochondrial reference, length, contig identity, and coordinate origin are assumed appropriate for the samples."),
             ("Mapping uniqueness", "Retained evidence is assumed not to be better explained by NUMTs, repeats, or equivalent secondary placements."),
             ("Clustering", "Directed breakpoints within the configured circular slop are assumed to represent the same exact coordinate-level event."),
@@ -1002,7 +1002,7 @@ def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: p
     )
     arc_example = (
         "<h3>How The Deleted Arc Is Assigned</h3>"
-        "<p>If a strand-normalized read contains reference sequence ending at retained base L followed by sequence beginning at retained base R, it supports adjacency <code>L|R</code>. "
+        "<p>If stored SAM/BAM query order contains reference sequence ending at retained base L followed by sequence beginning at retained base R, it supports adjacency <code>L|R</code>. "
         "The inferred deleted bases are the forward circular interval between L and R. A read supporting <code>R|L</code> represents the complementary deletion model. "
         "Reference rotation changes coordinate origin but must not reverse this directed adjacency. Conflicting directions are retained as ambiguous evidence rather than resolved by interval length.</p>"
     )
@@ -1037,6 +1037,7 @@ def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: p
 
 
 def method_section(config: dict, burden: pd.DataFrame) -> str:
+    dataset = config.get("dataset", {}) or {}
     mt = config.get("mt_realign", {}) or {}
     mapping = config.get("mapping", {}) or {}
     qc = config.get("qc", {}) or {}
@@ -1045,9 +1046,9 @@ def method_section(config: dict, burden: pd.DataFrame) -> str:
     settings = pd.DataFrame(
         [
             ("Result schema version", config.get("project", {}).get("result_schema_version", "unknown")),
-            ("Read technology", config.get("dataset", {}).get("read_technology", "unknown")),
-            ("Molecule type", config.get("dataset", {}).get("molecule_type", "unknown")),
-            ("Library strategy", config.get("dataset", {}).get("library_strategy", "unknown")),
+            ("Read technology", dataset.get("read_technology", "unknown")),
+            ("Molecule type", dataset.get("molecule_type", "unknown")),
+            ("Library strategy", dataset.get("library_strategy", "unknown")),
             ("Sample source", config.get("samples", {}).get("source", "")),
             ("Read preparation", config.get("downloads", {}).get("method", "")),
             (
@@ -1072,9 +1073,13 @@ def method_section(config: dict, burden: pd.DataFrame) -> str:
             ("Circular-coordinate handling", "normal plus rotated mitochondrial references, converted to standard coordinates while preserving directed junctions"),
             ("Reference rotations", ", ".join(str(item.get("name", "")) for item in mt.get("rotations", []))),
             ("Arc assignment", junctions.get("arc_assignment", "alignment_directed")),
-            ("Alignment pairing mode", junctions.get("alignment_pairing_mode", "adjacent")),
+            ("Alignment pairing mode", junctions.get("alignment_pairing_mode", "all_compatible")),
+            (
+                "Alignment-chain identity",
+                "SAM read1/read2 flags separate mates when present; otherwise each query name identifies one physical read sequence; fragment support is deduplicated by base query name",
+            ),
             ("Ambiguous direction policy", junctions.get("ambiguous_direction_policy", "exclude")),
-            ("Include secondary remap alignments", mt.get("minimap2_include_secondary", False)),
+            ("Include secondary remap alignments", mt.get("minimap2_include_secondary", True)),
             ("Include supplementary remap alignments", mt.get("minimap2_include_supplementary", True)),
             ("Minimum remap MAPQ", mt.get("minimap2_min_mapq", 0)),
             ("Minimum segment aligned fraction", mt.get("min_segment_aligned_fraction", "")),

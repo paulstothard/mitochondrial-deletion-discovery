@@ -70,19 +70,22 @@ make reciprocal junction directions equivalent.
 Usable segments are ordered on the query. Same-strand query order is normalized into
 a directed retained adjacency `L -> R`:
 
-- for plus-strand evidence, the earlier query segment ends at retained base `L` and
-  the later segment begins at retained base `R`;
-- for minus-strand evidence, segment order is transformed so the reported adjacency
-  is expressed in reference-forward coordinates.
+- for both plus- and minus-strand BAM records, the earlier stored-query segment ends
+  at retained base `L` and the later segment begins at retained base `R`. SAM/BAM
+  stores reverse-strand sequence reverse-complemented, so reversing that stored
+  query order a second time would select the reciprocal arc.
 
 The inferred deleted interval is the circular forward arc from `L` to `R`, excluding
 both retained breakpoint bases. `R -> L` is the complementary deletion model and has
 a different exact-deletion identifier.
 
-The caller defaults to adjacent query-segment pairs and excludes secondary
-alignments from primary calls. Supplementary alignments remain eligible. MAPQ,
-anchor length, aligned fraction, soft clipping, and query overlap/gap thresholds are
-configuration-driven.
+The caller evaluates compatible query-segment pairs within one physical read
+sequence. For paired-end data, SAM read1/read2 flags define separate alignment
+chains even when both mates have the same query name. Secondary and supplementary
+alignments remain eligible by default for continuity with the established evidence
+model. These policies, MAPQ, anchor length, aligned fraction, soft clipping, and
+query overlap/gap thresholds are configuration-driven and should be evaluated in
+sensitivity analyses.
 
 ### 6. Ambiguity handling
 
@@ -219,7 +222,8 @@ does not replace the normal plus rotated primary design.
 
 ## Result Provenance
 
-Schema `2.0-alignment-directed-arcs` identifies corrected outputs. Deliverables
+Schema `2.1-alignment-directed-arcs-mate-aware` identifies corrected outputs with
+mate-aware alignment chains. Deliverables
 include:
 
 - `tables/exact_deletions.tsv`;

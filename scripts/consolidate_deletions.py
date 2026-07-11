@@ -76,7 +76,7 @@ def cluster_rows(
     slop: int,
     min_support: int,
     mt_length: int | None = None,
-    result_schema_version: str = "2.0-alignment-directed-arcs",
+    result_schema_version: str = "2.1-alignment-directed-arcs-mate-aware",
 ) -> tuple[list[dict], list[dict], list[dict]]:
     if not mt_length:
         raise ValueError("mt_length is required for directed circular clustering")
@@ -227,7 +227,7 @@ def main() -> None:
     parser.add_argument("--id-map", required=True)
     parser.add_argument("--ambiguous-reads", required=True)
     parser.add_argument("--ambiguous-direction-policy", choices=["exclude", "include"], default="exclude")
-    parser.add_argument("--result-schema-version", default="2.0-alignment-directed-arcs")
+    parser.add_argument("--result-schema-version", default="2.1-alignment-directed-arcs-mate-aware")
     parser.add_argument("inputs", nargs="+")
     args = parser.parse_args()
 
