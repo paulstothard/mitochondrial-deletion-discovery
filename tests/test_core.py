@@ -40,8 +40,10 @@ from plot_deletion_results import (
 from estimate_breakpoint_reference_support import circular_window, window_covered
 from make_deletion_report import (
     assay_limitations,
+    assumptions_section,
     exact_deletion_display_table,
     exact_deletion_support_read_links,
+    potential_alternative_explanations,
     sequence_remap_overlap_table,
     table_html,
     write_configured_sequence_read_lists,
@@ -696,13 +698,11 @@ class CoreTests(unittest.TestCase):
 
     def test_report_assay_limitations_are_configuration_driven(self):
         nanopore_unknown = assay_limitations({"dataset": {"read_technology": "nanopore", "molecule_type": "unknown"}})
-        self.assertIn("Nanopore reads", nanopore_unknown)
+        self.assertIn("coordinate-focused deletion-like evidence", nanopore_unknown)
         self.assertIn("Molecule type is not specified", nanopore_unknown)
-        self.assertNotIn("RNA-derived", nanopore_unknown)
 
         illumina_rna = assay_limitations({"dataset": {"read_technology": "illumina", "molecule_type": "rna"}})
-        self.assertIn("Illumina split-read anchors", illumina_rna)
-        self.assertIn("RNA-derived split alignments", illumina_rna)
+        self.assertIn("RNA read support does not directly measure", illumina_rna)
 
         nanopore_single_cell_rna = assay_limitations(
             {
@@ -713,10 +713,70 @@ class CoreTests(unittest.TestCase):
                 }
             }
         )
-        self.assertIn("Nanopore reads", nanopore_single_cell_rna)
-        self.assertIn("RNA-derived split alignments", nanopore_single_cell_rna)
+        self.assertIn("RNA read support does not directly measure", nanopore_single_cell_rna)
         self.assertIn("Single-cell RNA-seq support", nanopore_single_cell_rna)
         self.assertNotIn("Molecule type is not specified", nanopore_single_cell_rna)
+
+    def test_report_alternative_explanations_are_configuration_driven(self):
+        illumina_rna = potential_alternative_explanations(
+            {"dataset": {"read_technology": "illumina", "molecule_type": "rna", "assay_type": "bulk_rna_seq"}}
+        )
+        illumina_applies = set(illumina_rna["Applies to"])
+        self.assertIn("All datasets", illumina_applies)
+        self.assertIn("Circular remapping", illumina_applies)
+        self.assertIn("Illumina", illumina_applies)
+        self.assertIn("RNA", illumina_applies)
+        self.assertNotIn("Nanopore", illumina_applies)
+        self.assertNotIn("DNA", illumina_applies)
+        self.assertNotIn("Single-cell RNA-seq", illumina_applies)
+
+        nanopore_single_cell_rna = potential_alternative_explanations(
+            {
+                "dataset": {
+                    "read_technology": "nanopore",
+                    "molecule_type": "rna",
+                    "assay_type": "single_cell_rna_seq",
+                }
+            }
+        )
+        nanopore_applies = set(nanopore_single_cell_rna["Applies to"])
+        self.assertIn("Nanopore", nanopore_applies)
+        self.assertIn("RNA", nanopore_applies)
+        self.assertIn("Single-cell RNA-seq", nanopore_applies)
+        self.assertNotIn("Illumina", nanopore_applies)
+        self.assertNotIn("DNA", nanopore_applies)
+
+        nanopore_dna = potential_alternative_explanations(
+            {"dataset": {"read_technology": "nanopore", "molecule_type": "dna", "assay_type": "genomic_dna"}}
+        )
+        dna_applies = set(nanopore_dna["Applies to"])
+        self.assertIn("Nanopore", dna_applies)
+        self.assertIn("DNA", dna_applies)
+        self.assertNotIn("RNA", dna_applies)
+
+        unknown = potential_alternative_explanations({"dataset": {}})
+        unknown_applies = set(unknown["Applies to"])
+        self.assertIn("Unknown read technology", unknown_applies)
+        self.assertIn("Unknown molecule type", unknown_applies)
+        self.assertNotIn("Illumina", unknown_applies)
+        self.assertNotIn("Nanopore", unknown_applies)
+        self.assertNotIn("RNA", unknown_applies)
+        self.assertNotIn("DNA", unknown_applies)
+
+    def test_report_assumptions_render_artifact_table_before_arc_explanation(self):
+        report_html = assumptions_section(
+            {"dataset": {"read_technology": "illumina", "molecule_type": "rna", "assay_type": "bulk_rna_seq"}},
+            pd.DataFrame(),
+            pd.DataFrame(),
+            pd.DataFrame(),
+        )
+        alternatives_heading = "Potential Alternative Explanations For Deletion-like Evidence"
+        arc_heading = "How The Deleted Arc Is Assigned"
+        self.assertIn(alternatives_heading, report_html)
+        self.assertIn("Mitochondrial transcript processing", report_html)
+        self.assertIn("Short or non-unique split anchors", report_html)
+        self.assertNotIn("Basecalling errors and difficult sequence contexts", report_html)
+        self.assertLess(report_html.index(alternatives_heading), report_html.index(arc_heading))
 
     def test_known_sequence_summary_links_matching_reads_to_read_names(self):
         import pandas as pd

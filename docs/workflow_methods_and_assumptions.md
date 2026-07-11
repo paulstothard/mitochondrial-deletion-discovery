@@ -165,6 +165,13 @@ Primary results assume that:
   or heteroplasmy;
 - absence of evidence is not evidence of absence.
 
+The report presents applicable alternative explanations in a configuration-driven
+table organized by sequencing technology, molecule type, and assay type. The table
+distinguishes technical artifacts and alignment ambiguity from biological RNA
+processing that can create deletion-like evidence without an mtDNA deletion. These
+entries are interpretation considerations, not classifications of every reported
+call as artifactual.
+
 ## Technology-Specific Interpretation
 
 ### Nanopore

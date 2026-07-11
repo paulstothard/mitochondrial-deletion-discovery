@@ -937,27 +937,18 @@ def first_pass_selection_explanation(config: dict) -> str:
 
 def assay_limitations(config: dict) -> str:
     dataset = config.get("dataset", {}) or {}
-    technology = str(dataset.get("read_technology", "unknown")).strip().lower()
     molecule = str(dataset.get("molecule_type", "unknown")).strip().lower()
     assay = str(dataset.get("assay_type", "unknown")).strip().lower()
-    parts = []
-    if technology == "nanopore":
-        parts.append(
-            "Nanopore reads can provide long junction anchors, but base errors, homopolymers, supplementary or alternative placements, chimeric reads, ligation artifacts, and concatemers can affect breakpoint evidence."
-        )
-    elif technology == "illumina":
-        parts.append(
-            "Illumina split-read anchors are shorter and can be difficult to place uniquely around repeats or NUMTs. The current caller requires breakpoint-spanning split evidence and does not call a deletion from mate distance alone."
-        )
-    else:
-        parts.append("Read technology is not specified, so technology-specific sensitivity and artifact assumptions cannot be selected reliably.")
+    parts = [
+        "Reported calls are coordinate-focused deletion-like evidence from accepted split alignments, not automatic proof of biological mtDNA deletions."
+    ]
     if molecule == "rna":
         parts.append(
-            "RNA-derived split alignments may reflect transcript processing, reverse transcription, or template switching. RNA read support does not directly measure mtDNA heteroplasmy or genome copy fraction."
+            "RNA read support does not directly measure mtDNA heteroplasmy or genome copy fraction."
         )
     elif molecule == "dna":
         parts.append(
-            "DNA-derived reads are closer to genome-molecule evidence but can still reflect NUMTs, PCR or ligation chimeras, mapping ambiguity, and sampling. Local split-support fraction is not automatically a heteroplasmy estimate."
+            "DNA-derived reads are closer to genome-molecule evidence, but local split-support fraction is not automatically a heteroplasmy estimate."
         )
     else:
         parts.append("Molecule type is not specified; DNA- versus RNA-specific biological interpretation is therefore limited.")
@@ -966,6 +957,123 @@ def assay_limitations(config: dict) -> str:
             "Single-cell RNA-seq support can be affected by cell-level sparsity, amplification, barcode or UMI processing, and pooling. Unless cell identifiers are retained in the workflow inputs, deletion support is summarized at the configured sample or group level rather than as per-cell prevalence."
         )
     return " ".join(parts)
+
+
+def potential_alternative_explanations(config: dict) -> pd.DataFrame:
+    dataset = config.get("dataset", {}) or {}
+    technology = str(dataset.get("read_technology", "unknown")).strip().lower()
+    molecule = str(dataset.get("molecule_type", "unknown")).strip().lower()
+    assay = str(dataset.get("assay_type", "unknown")).strip().lower()
+    rows = [
+        {
+            "Applies to": "All datasets",
+            "Potential alternative explanation": "Alternative or non-unique alignment placement",
+            "How deletion-like evidence can arise": "NUMTs, repeats, or equivalent secondary placements can assign split segments to misleading mitochondrial coordinates.",
+            "Relevant workflow control or limitation": "Competitive whole-genome read selection, MAPQ fields, and secondary-alignment provenance expose this uncertainty but cannot eliminate every ambiguous placement.",
+        },
+        {
+            "Applies to": "All datasets",
+            "Potential alternative explanation": "Chimeric source read or library molecule",
+            "How deletion-like evidence can arise": "Fragments joined during library preparation or sequencing can contain an adjacency that was not present in the original mitochondrial molecule.",
+            "Relevant workflow control or limitation": "Alignment chains keep paired mates separate and require one physical read sequence, but this does not prove that the source read itself is free of library chimeras.",
+        },
+        {
+            "Applies to": "All datasets",
+            "Potential alternative explanation": "Repeated observations from one original molecule",
+            "How deletion-like evidence can arise": "PCR or assay amplification can make one source molecule appear as multiple supporting reads.",
+            "Relevant workflow control or limitation": "Read and fragment identifiers are deduplicated where available; without validated molecular barcodes, supporting-read counts do not guarantee independent original molecules.",
+        },
+        {
+            "Applies to": "Circular remapping",
+            "Potential alternative explanation": "Reciprocal direction or reference-rotation disagreement",
+            "How deletion-like evidence can arise": "Alternative split-alignment arrangements can support complementary circular arcs or appear in only one rotated coordinate system.",
+            "Relevant workflow control or limitation": "The caller preserves directed adjacency, consolidates rotations, and reports or excludes reciprocal conflicts according to configuration. Crossing the coordinate origin alone is not evidence of an artifact.",
+        },
+    ]
+
+    if technology == "illumina":
+        rows.append(
+            {
+                "Applies to": "Illumina",
+                "Potential alternative explanation": "Short or non-unique split anchors",
+                "How deletion-like evidence can arise": "A short segment on either side of a junction can have several plausible placements, particularly near repeats or NUMTs.",
+                "Relevant workflow control or limitation": "Anchor-length, aligned-fraction, and MAPQ settings constrain accepted segments. Mate distance alone is not used to call a deletion.",
+            }
+        )
+    elif technology == "nanopore":
+        rows.extend(
+            [
+                {
+                    "Applies to": "Nanopore",
+                    "Potential alternative explanation": "Basecalling errors and difficult sequence contexts",
+                    "How deletion-like evidence can arise": "Errors, including those near homopolymers, can shift breakpoint placement or promote a split alignment.",
+                    "Relevant workflow control or limitation": "Long anchors and alignment-quality fields support review, but breakpoint precision and validity still require read-level inspection for prioritized calls.",
+                },
+                {
+                    "Applies to": "Nanopore",
+                    "Potential alternative explanation": "Ligation products, internal adapters, or concatemers",
+                    "How deletion-like evidence can arise": "Multiple source molecules can be sequenced as one apparent read and resemble a breakpoint-spanning molecule.",
+                    "Relevant workflow control or limitation": "Supporting-read counts and alignment provenance are reported, but the caller does not by itself prove that a long read represents one original molecule.",
+                },
+            ]
+        )
+    else:
+        rows.append(
+            {
+                "Applies to": "Unknown read technology",
+                "Potential alternative explanation": "Technology-specific effects cannot be selected",
+                "How deletion-like evidence can arise": "The relevant error profile, anchor-length limitations, and library artifacts depend on the sequencing technology.",
+                "Relevant workflow control or limitation": "Set dataset.read_technology so the report can display the applicable interpretation guidance.",
+            }
+        )
+
+    if molecule == "rna":
+        rows.extend(
+            [
+                {
+                    "Applies to": "RNA",
+                    "Potential alternative explanation": "Mitochondrial transcript processing",
+                    "How deletion-like evidence can arise": "Processed polycistronic transcripts can contain RNA adjacencies that are absent from the mitochondrial genome.",
+                    "Relevant workflow control or limitation": "Configured transcript-compatible junctions are annotated and can be excluded, but that model does not cover every possible RNA-processing product.",
+                },
+                {
+                    "Applies to": "RNA",
+                    "Potential alternative explanation": "Reverse-transcription template switching",
+                    "How deletion-like evidence can arise": "cDNA synthesis can join non-adjacent RNA segments into an apparent deletion junction.",
+                    "Relevant workflow control or limitation": "This cannot be ruled out from alignment alone; independent support, replication, controls, and orthogonal DNA validation strengthen interpretation.",
+                },
+            ]
+        )
+    elif molecule == "dna":
+        rows.append(
+            {
+                "Applies to": "DNA",
+                "Potential alternative explanation": "NUMT-derived reads or DNA-library chimeras",
+                "How deletion-like evidence can arise": "Nuclear mitochondrial sequence or PCR/ligation products can resemble a mitochondrial genomic breakpoint.",
+                "Relevant workflow control or limitation": "Competitive mapping and alignment provenance reduce this risk, but prioritized calls still require molecule-level or orthogonal validation.",
+            }
+        )
+    else:
+        rows.append(
+            {
+                "Applies to": "Unknown molecule type",
+                "Potential alternative explanation": "Molecule-specific effects cannot be selected",
+                "How deletion-like evidence can arise": "RNA processing and reverse transcription differ from DNA-library and genome-molecule interpretations.",
+                "Relevant workflow control or limitation": "Set dataset.molecule_type so the report can distinguish RNA- and DNA-specific alternatives.",
+            }
+        )
+
+    if assay == "single_cell_rna_seq":
+        rows.append(
+            {
+                "Applies to": "Single-cell RNA-seq",
+                "Potential alternative explanation": "Amplification, barcode/UMI processing, sparsity, or pooling",
+                "How deletion-like evidence can arise": "Technical amplification can exaggerate rare junctions, while barcode handling or pooled summaries can obscure whether support comes from distinct cells and molecules.",
+                "Relevant workflow control or limitation": "Unless validated cell and molecule identifiers are retained, results are summarized at the configured sample or group level rather than interpreted as per-cell prevalence.",
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 
 def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: pd.DataFrame, qc: pd.DataFrame) -> str:
@@ -1044,7 +1152,14 @@ def assumptions_section(config: dict, clusters: pd.DataFrame, ambiguous_reads: p
     return section(
         "Analysis Assumptions And Limitations",
         assay_limitations(config),
-        warning_body + arc_example + "<h3>Core Assumptions</h3>" + table_html(assumptions, rows=20) + ambiguous_body,
+        warning_body
+        + "<h3>Potential Alternative Explanations For Deletion-like Evidence</h3>"
+        + "<p>This table lists technical artifacts, alignment ambiguity, and biological RNA phenomena that can resemble an mtDNA deletion in this dataset. These are possible explanations to evaluate, not findings that every reported call is artifactual.</p>"
+        + table_html(potential_alternative_explanations(config), rows=30)
+        + arc_example
+        + "<h3>Core Assumptions</h3>"
+        + table_html(assumptions, rows=20)
+        + ambiguous_body,
     )
 
 
@@ -1980,7 +2095,7 @@ def main() -> None:
     <div id="evidence">{evidence_streams_section(qc, known_sequence_summary, known_sequence_hits, read_list_dir, overlap_table, overlap_html_cells)}</div>
     <div id="circular-checks">{circular_validation_section(config, clusters)}</div>
     <section id="qc"><div class="section-heading"><h2>Processing QC</h2><p>This table summarizes the first-pass read selection, mitochondrial remapping, and deletion-call denominators used by the report.</p></div>{table_html(qc, 300)}</section>
-    {stream_result_section("remap-stream", "Circular-Remap Deletion Results", f"These results start from the retained mitochondrial-evidence reads, remap them to normal and rotated mitochondrial references, and normalize support {normalization_phrase(burden, config)}.", config, plot_sections(primary_plots), plot_sections(secondary_plots), clusters, burden, exact_comp, affected_comp, impact_comp, size_tests, size_bin_summary, factorial_model_summary, metadata_assoc, per_gene, junction_reads, read_list_dir, read_list_manifest)}
+    {stream_result_section("remap-stream", "Circular-Remap Deletion Results", f"These results start from the retained mitochondrial-evidence reads, remap them to normal and rotated mitochondrial references, and normalize support {normalization_phrase(burden, config)}. They are coordinate-focused deletion-like evidence; review the earlier Analysis Assumptions And Limitations section before biological interpretation.", config, plot_sections(primary_plots), plot_sections(secondary_plots), clusters, burden, exact_comp, affected_comp, impact_comp, size_tests, size_bin_summary, factorial_model_summary, metadata_assoc, per_gene, junction_reads, read_list_dir, read_list_manifest)}
   </main>
   <script>{js}</script>
 </body>
