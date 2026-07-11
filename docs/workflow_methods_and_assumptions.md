@@ -193,7 +193,7 @@ does not directly measure mtDNA genome frequency or heteroplasmy.
 
 ### DNA
 
-DNA reads are closer to direct genome-molecule evidence but can still reflect NUMTs,
+DNA reads are closer to direct genome-molecule evidence but can reflect NUMTs,
 PCR or ligation chimeras, mapping ambiguity, and sampling. Control-region-lacking
 molecules may be defective, complemented, transient, or artifactual; viability must
 not be inferred solely from split alignments.

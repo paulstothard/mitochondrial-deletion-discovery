@@ -42,7 +42,7 @@ For each exact deletion, the workflow also estimates local reference-spanning su
 
 `split-supporting reads / (split-supporting reads + minimum local reference-spanning reads)`
 
-This is a local alignment-support metric, not the denominator used for the main per-million plots. For RNA data, it should not be interpreted as mtDNA heteroplasmy. For DNA data, it is still a local breakpoint-support summary rather than a complete heteroplasmy model unless the dataset and coverage assumptions justify that interpretation. It is most interpretable when reads are long enough to span the configured breakpoint windows and when both breakpoint neighborhoods have coverage. The denominator is calculated for remap-called exact deletions because the numerator and reference-spanning counts come from the same remapped read set. Configured sequence searches are kept as supplementary literal motif checks; their counts are not converted into this denominator because a motif hit alone does not define the comparable non-deletion spanning-read population.
+This is a local alignment-support metric, not the denominator used for the main per-million plots. For RNA data, it should not be interpreted as mtDNA heteroplasmy. For DNA data, it is a local breakpoint-support summary rather than a complete heteroplasmy model unless the dataset and coverage assumptions justify that interpretation. It is most interpretable when reads are long enough to span the configured breakpoint windows and when both breakpoint neighborhoods have coverage. The denominator is calculated for remap-called exact deletions because the numerator and reference-spanning counts come from the same remapped read set. Configured sequence searches are kept as supplementary literal motif checks; their counts are not converted into this denominator because a motif hit alone does not define the comparable non-deletion spanning-read population.
 
 **Affected-feature categories** are biology-level events. For each deletion, the workflow determines which annotated mitochondrial genes or features overlap the deleted interval. Feature names come from the reference annotation, are sorted by genomic order, and are joined with `+`, for example `MT-ATP6+MT-CO3+MT-ND3`. This makes group comparisons more stable when breakpoints vary slightly but affect the same genes.
 
@@ -89,7 +89,7 @@ Dataset configuration should state `dataset.read_technology`, `dataset.molecule_
 
 For nanopore data, long anchors can support direct junction inspection, but base errors, homopolymers, supplementary or alternative placements, ligation artifacts, chimeric reads, and concatemers can affect calls. For Illumina data, short split anchors can be difficult to place uniquely around repeats and NUMTs; the current workflow does not call a deletion from mate distance alone.
 
-For RNA-derived data, transcript processing, reverse transcription, and template switching can create deletion-like split alignments, and read abundance does not measure mtDNA heteroplasmy. For DNA-derived data, split evidence is closer to genome-molecule evidence but can still reflect NUMTs, PCR or ligation chimeras, mapping ambiguity, and sampling. In either case, coordinate evidence should not be described as a confirmed biological deletion without appropriate context and validation.
+For RNA-derived data, transcript processing, reverse transcription, and template switching can create deletion-like split alignments, and read abundance does not measure mtDNA heteroplasmy. For DNA-derived data, split evidence is closer to genome-molecule evidence but can reflect NUMTs, PCR or ligation chimeras, mapping ambiguity, and sampling. In either case, coordinate evidence should not be described as a confirmed biological deletion without appropriate context and validation.
 
 ## RNA-Specific Transcript Artifact Handling
 
@@ -101,7 +101,7 @@ feature aliases are resolved, so species-specific raw annotation names can be
 converted to readable mitochondrial feature names first. With the default
 `junctions.exclude_expected_transcript_junctions: true`, transcript-compatible
 split reads are excluded from deletion burden, exact-deletion, affected-feature,
-and group-comparison summaries. Their counts are still reported in QC tables so
+and group-comparison summaries. Their counts are reported in QC tables so
 the filtering is visible.
 
 Current filters and annotations include:
@@ -453,9 +453,9 @@ Important machine-readable outputs:
 - `analysis/known_sequence_search_summary.tsv` when configured sequence searches are present
 - `analysis/known_sequence_search_hits.tsv` when configured sequence searches are present
 
-The `*_per_million_mt_reads.tsv` filenames are retained for compatibility with earlier workflow outputs. Check the `normalization_denominator` and `normalization_reads` columns in `analysis/deletion_burden.tsv` and the report method table to see whether the run used total usable reads or retained mitochondrial-evidence reads as the denominator.
+The `*_per_million_mt_reads.tsv` filenames are stable output names and do not identify the normalization denominator by themselves. Check the `normalization_denominator` and `normalization_reads` columns in `analysis/deletion_burden.tsv` and the report method table to determine whether the run used total usable reads or retained mitochondrial-evidence reads as the denominator.
 
-For usability, the HTML report embeds a filtered exact-deletions table by default: exact deletions with at least 50 supporting reads are shown, and configured deletion-target matches are always retained. The complete unfiltered exact-deletion table is still delivered as `tables/exact_deletions.tsv`. Adjust this display-only behavior with `report.exact_deletion_table` in the configuration.
+For usability, the HTML report embeds a filtered exact-deletions table by default: exact deletions with at least 50 supporting reads are shown, and configured deletion-target matches are always retained. The complete unfiltered exact-deletion table is delivered as `tables/exact_deletions.tsv`. Adjust this display-only behavior with `report.exact_deletion_table` in the configuration.
 
 When read-level evidence is available, the HTML report links read-count cells to sidecar TSVs in `read_lists/`. Exact-deletion support counts link to the reads supporting that deletion, configured deletion-target remap counts link to the reads supporting all nearby remap calls assigned to that target, and configured sequence-search counts link to reads containing the configured literal motif.
 

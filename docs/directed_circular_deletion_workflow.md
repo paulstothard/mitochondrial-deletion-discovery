@@ -206,7 +206,7 @@ mtDNA heteroplasmy or genome copy fraction.
 
 ### DNA
 
-DNA reads are closer to genome-molecule evidence but can still reflect NUMTs, PCR or
+DNA reads are closer to genome-molecule evidence but can reflect NUMTs, PCR or
 ligation chimeras, mapping ambiguity, and sampling. Split-read support alone does not
 establish molecule viability or heteroplasmy.
 
