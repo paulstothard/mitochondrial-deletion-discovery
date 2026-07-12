@@ -497,6 +497,7 @@ Report and canonical evidence outputs:
 - `results/<dataset>/<dataset>_deliverables/index.html` - self-contained deliverable selector for the stringent, standard, and exploratory packages.
 - `results/<dataset>/<dataset>_deliverables/profiles/<profile>/` - packaged report, tables, matrices, plots, and read lists for one profile.
 - `results/<dataset>/<dataset>_deliverables/shared/` - packaged canonical evidence and provenance shared by all profiles.
+- `results/<dataset>/<dataset>_deliverables.zip` - portable ZIP archive of the complete full deliverable folder.
 - `results/<dataset>/<dataset>_deliverables_light/index.html` - shareable report selector with cluster-level tables, matrices, plots, methods, and configuration, excluding read lists and observation-level audit tables.
 - `results/<dataset>/<dataset>_deliverables_light.zip` - portable ZIP archive of the complete light deliverable folder.
 - `results/<dataset>/quality/report/index.html` - profile selector and profile counts.

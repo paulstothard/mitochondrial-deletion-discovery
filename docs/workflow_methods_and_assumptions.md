@@ -306,7 +306,9 @@ The deliverable entry point is
 stringent, standard, and exploratory packages. Each profile package contains its
 report, tables, matrices, plots, and deletion read lists. Shared canonical evidence,
 profile membership, tier summaries, and resolved configuration are included under
-the deliverable `shared/` and `config/` directories.
+the deliverable `shared/` and `config/` directories. A matching
+`<dataset>_deliverables.zip` containing the top-level full deliverable directory is
+created by default.
 
 The workflow also creates
 `results/<dataset>/<dataset>_deliverables_light/index.html` and a matching
@@ -315,8 +317,8 @@ profile's report, cluster-level exact-deletion and analysis tables, matrices, pl
 methods, configuration, and tier summaries. It excludes per-deletion read lists,
 source-candidate and canonical-observation tables, ID maps, and intermediate audit
 tables. Read-list links and instructions are removed from the light reports. The ZIP
-contains the top-level light deliverable directory and can be opened with standard
-ZIP tools.
+contains the top-level light deliverable directory. Both archives can be opened with
+standard ZIP tools.
 
 The corresponding workflow working outputs remain under
 `results/<dataset>/quality/`: `report/index.html` is the working profile selector,

@@ -144,6 +144,9 @@ class QualityEvidenceTests(unittest.TestCase):
 
             package = root / "test_dataset_deliverables"
             package_quality_results(root, package, "test_dataset", config, profiles)
+            (package / "DELIVERABLES_COMPLETE.txt").write_text("complete\n", encoding="utf-8")
+            full_archive = root / "test_dataset_deliverables.zip"
+            create_zip_archive(package, full_archive)
 
             selector = (package / "index.html").read_text(encoding="utf-8")
             for profile in profiles:
@@ -157,6 +160,12 @@ class QualityEvidenceTests(unittest.TestCase):
                 (package / "shared" / "canonical_clusters.tsv").read_text(encoding="utf-8"),
                 (shared / "canonical_clusters.tsv").read_text(encoding="utf-8"),
             )
+            with zipfile.ZipFile(full_archive, "r") as zipped:
+                self.assertIsNone(zipped.testzip())
+                self.assertIn(
+                    "test_dataset_deliverables/profiles/standard/read_lists/manifest.tsv",
+                    zipped.namelist(),
+                )
 
             light = root / "test_dataset_deliverables_light"
             package_light_quality_results(root, light, "test_dataset", config, profiles)
@@ -231,6 +240,7 @@ class QualityEvidenceTests(unittest.TestCase):
         self.assertIn("3.0-quality-evidence-multi-caller", documentation)
         self.assertIn("results/<dataset>/quality/report/index.html", documentation)
         self.assertIn("results/<dataset>/<dataset>_deliverables/index.html", documentation)
+        self.assertIn("results/<dataset>/<dataset>_deliverables.zip", documentation)
         self.assertIn("results/<dataset>/<dataset>_deliverables_light.zip", documentation)
         self.assertIn("not_available_from_retained_intermediates", documentation)
 

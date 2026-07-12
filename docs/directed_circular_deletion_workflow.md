@@ -258,6 +258,7 @@ A complete workflow target creates
 `results/<dataset>/<dataset>_deliverables/index.html`. This self-contained selector
 links packaged profile directories containing each report and its tables, matrices,
 plots, and read lists, plus the shared canonical evidence and resolved configuration.
+The complete full folder is also written as `<dataset>_deliverables.zip`.
 The same target creates an uncompressed `<dataset>_deliverables_light/` package and
 `<dataset>_deliverables_light.zip`. The light package preserves separate
 profile-specific cluster results and presentation outputs while excluding read lists
