@@ -691,6 +691,8 @@ class QualityEvidenceTests(unittest.TestCase):
             "standard",
         )
         self.assertIn("STAR chimeric or mitochondrial-remap alignments", rendered)
+        self.assertIn("No mate exists, so mate evidence is neither required nor used", rendered)
+        self.assertNotIn("mate-pair consistency is unavailable", rendered)
         self.assertNotIn("still", rendered.lower())
 
     def test_paired_report_states_unavailable_mate_context(self):

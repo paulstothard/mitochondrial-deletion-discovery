@@ -142,7 +142,7 @@ plots:
 report:
   html: true
   exact_deletion_table:
-    min_total_supporting_reads: 50
+    min_total_supporting_reads: 0
     always_include_configured_targets: true
     max_rows: 500
 quality:

@@ -116,6 +116,8 @@ Mate-placement fields are descriptive rather than calling criteria. When the
 retained intermediates do not contain the required mate alignments, the canonical
 observation table records `not_available_from_retained_intermediates` instead of an
 empty value or an inferred concordance result.
+For single-end libraries, no mate exists; mate evidence is neither required nor used
+to accept an individually supported split or chimeric observation.
 
 Directed left and right breakpoints are clustered within configured circular slop.
 The same sample/read supporting the same directed cluster in multiple rotations is
@@ -320,6 +322,11 @@ The corresponding workflow working outputs remain under
 `results/<dataset>/quality/`: `report/index.html` is the working profile selector,
 `shared/` contains canonical outputs, and `profiles/<profile>/` contains the
 profile-specific analysis tree.
+
+The embedded exact-deletion report table has no absolute supporting-read threshold
+by default. It displays all calls when at most 500 are present; otherwise it
+prioritizes configured targets and then the highest-support calls up to the 500-row
+display cap. The profile-specific `tables/exact_deletions.tsv` remains unfiltered.
 
 Canonical deliverables include:
 

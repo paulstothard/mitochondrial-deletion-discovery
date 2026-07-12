@@ -1611,7 +1611,6 @@ def experimental_design_section(
     pieces = []
     layouts = sorted(samples.get("layout", pd.Series(dtype=str)).dropna().astype(str).unique())
     if layouts:
-        note = "Read layout: " + ", ".join(layouts) + ". "
         dual_caller = bool((config or {}).get("quality", {}).get("short_read_rna_dual_caller", {}).get("enabled", False)) and bool(report_profile)
         evidence_path = (
             "from individual STAR chimeric or mitochondrial-remap alignments"
@@ -1619,9 +1618,17 @@ def experimental_design_section(
             else "from individual split-read alignments after mitochondrial remapping"
         )
         if layouts == ["single"]:
-            note += f"Deletion evidence is evaluated {evidence_path}; mate-pair consistency is unavailable."
+            note = (
+                "Read layout: single-end. "
+                f"Each deletion-supporting observation is evaluated {evidence_path} within one read. "
+                "No mate exists, so mate evidence is neither required nor used."
+            )
         elif "paired" in layouts:
+            note = "Read layout: " + ", ".join(layouts) + ". "
             note += f"Deletion evidence is evaluated {evidence_path}. Mates are not joined across reads to create a deletion call, and R1/R2 identifiers are collapsed to one fragment-level observation when they support the same canonical event. Mate-placement context is marked unavailable when the required alignment records are not present in the retained intermediates."
+        else:
+            note = "Read layout: " + ", ".join(layouts) + ". "
+            note += f"Deletion evidence is evaluated {evidence_path}."
         pieces.append(f'<div class="notice">{html.escape(note)}</div>')
     if {"age", "treatment"}.issubset(samples.columns):
         counts = samples.groupby(["age", "treatment"], dropna=False).size().reset_index(name="sample_count")
@@ -1779,7 +1786,7 @@ def exact_deletion_table_settings(config: dict) -> dict[str, object]:
     report = config.get("report", {}) or {}
     settings = report.get("exact_deletion_table", {}) or {}
     return {
-        "min_total_supporting_reads": int(settings.get("min_total_supporting_reads", 50) or 0),
+        "min_total_supporting_reads": int(settings.get("min_total_supporting_reads", 0) or 0),
         "always_include_configured_targets": bool(settings.get("always_include_configured_targets", True)),
         "max_rows": int(settings.get("max_rows", 500) or 0),
     }
@@ -1822,9 +1829,14 @@ def exact_deletion_display_table(
     target_retained = int(configured_target_mask(filtered).sum())
     target_total = int(target_rows.sum())
     shown_support = int(pd.to_numeric(filtered.get("total_supporting_reads", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
-    parts = [
-        f"The embedded report table is filtered for readability: it shows exact deletions with at least {min_support} supporting reads",
-    ]
+    if min_support > 0:
+        parts = [
+            f"The embedded report table is filtered for readability: it shows exact deletions with at least {min_support} supporting reads",
+        ]
+    else:
+        parts = [
+            "The embedded report table is limited for readability: it prioritizes exact deletions by configured-target status and supporting-read count",
+        ]
     if settings["always_include_configured_targets"]:
         parts.append(" and always includes configured deletion-target matches")
     cap_text = f", then caps the display at {max_rows} rows" if max_rows > 0 else ""

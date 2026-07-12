@@ -164,6 +164,7 @@ Unavailable caller metrics are empty or carry an explicit availability status; t
 are not interpreted as zero. Mate-placement fields use
 `not_available_from_retained_intermediates` when the retained alignment products do
 not contain the records required to calculate them.
+Single-end observations do not require mate evidence because no mate exists.
 
 ## Canonical Deletion Objects
 
@@ -262,6 +263,9 @@ The same target creates an uncompressed `<dataset>_deliverables_light/` package 
 profile-specific cluster results and presentation outputs while excluding read lists
 and observation-level audit material. Full and light packages are derived from the
 same canonical analysis outputs; packaging does not create or recall deletion events.
+The HTML exact-deletion table applies no absolute supporting-read threshold by
+default. A 500-row presentation cap prioritizes configured targets and then support;
+the delivered exact-deletion TSV retains the complete profile call set.
 
 Short-read RNA reports include a gene-pair matrix and PCA only when the STAR evidence
 stream is enabled. Gene-pair labels annotate or aggregate exact coordinate events;

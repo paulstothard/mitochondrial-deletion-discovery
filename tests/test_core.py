@@ -43,6 +43,7 @@ from make_deletion_report import (
     assay_limitations,
     assumptions_section,
     exact_deletion_display_table,
+    exact_deletion_table_settings,
     exact_deletion_support_read_links,
     method_section,
     potential_alternative_explanations,
@@ -598,6 +599,33 @@ class CoreTests(unittest.TestCase):
         display, note = exact_deletion_display_table(clusters, config)
         self.assertEqual(len(display), 2)
         self.assertIn("shows all 2 exact deletions", note)
+
+    def test_exact_deletion_display_default_has_no_support_threshold(self):
+        self.assertEqual(exact_deletion_table_settings({})["min_total_supporting_reads"], 0)
+        clusters = pd.DataFrame(
+            [
+                {
+                    "exact_deletion_id": f"mtDel_{index:04d}",
+                    "total_supporting_reads": 1,
+                    "known_deletion_label": "configured" if index == 0 else "",
+                }
+                for index in range(600)
+            ]
+        )
+        config = {
+            "report": {
+                "exact_deletion_table": {
+                    "min_total_supporting_reads": 0,
+                    "always_include_configured_targets": True,
+                    "max_rows": 500,
+                }
+            }
+        }
+        display, note = exact_deletion_display_table(clusters, config)
+        self.assertEqual(len(display), 500)
+        self.assertTrue((display["total_supporting_reads"] == 1).all())
+        self.assertIn("supporting-read count", note)
+        self.assertNotIn("at least 0", note)
 
     def test_rainfall_location_features_apply_configured_aliases(self):
         features = pd.DataFrame(
