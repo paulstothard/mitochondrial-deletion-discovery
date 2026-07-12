@@ -2,7 +2,7 @@
 
 Configurable Snakemake workflow for comparing sequencing datasets for mitochondrial deletion evidence. The workflow supports RNA and DNA read inputs through dataset configuration; sample names, accessions, and biological conclusions are not hard-coded into rules or scripts.
 
-Current dataset configs:
+Dataset configs included in the repository:
 
 - rat aging muscle GPA dataset from NCBI BioProject `PRJNA793055`;
 - local human common mtDNA deletion dataset with HDFn, KSS-95, and KSS-96 FASTQs;
@@ -11,11 +11,13 @@ Current dataset configs:
 
 ## Conceptual Model
 
-The main report is focused on mitochondrial circular-remap deletion calls. The first-pass genome alignment is used as read selection and provenance, not as a reported biological result stream. The default selection mode is competitive whole-genome assignment: reads are aligned with nuclear chromosomes and mtDNA present together, then reads whose best/selected evidence is mitochondrial are passed to mitochondrial remapping. Nuclear-only unmapped-read selection and the older full-genome mitochondrial-evidence scanner remain available as configuration-driven sensitivity/reproducibility modes.
+The workflow reports coordinate-focused mitochondrial deletion evidence after circular canonicalization, filtering, physical-observation deduplication, annotation, and quality profiling. The default first-pass selection mode is competitive whole-genome assignment: reads are aligned with nuclear chromosomes and mtDNA present together, then reads whose best/selected evidence is mitochondrial are passed to mitochondrial remapping. `nuclear_unmapped_reads` and `mt_evidence_reads` are configuration-driven alternatives for sensitivity and reproducibility checks.
 
 **Mitochondrial circular-remap results.** Selected reads are remapped with minimap2 to mitochondrial-only references and converted back to the original mtDNA coordinate system. Query order and alignment strand define a directed retained adjacency `L -> R`; the inferred deleted interval is the forward circular arc from retained base `L` to retained base `R`. The reciprocal `R -> L` adjacency is a different deletion model and is not collapsed by choosing the shorter arc. By default these results are normalized per million usable reads after read preparation. The denominator can be changed with `analysis.normalization_denominator`; supported values are `total_usable_reads` and `mt_evidence_reads`.
 
 **Mitochondrial-evidence reads** are the reads retained after first-pass genome assignment because their best or selected alignment evidence is mitochondrial. They are the reads written to the remap-input FASTQs. They are the input to circular remapping and can optionally be used as the per-million denominator, but they are not the default denominator. This is different from the local breakpoint reference-support denominator described below.
+
+**Short-read RNA dual-caller evidence.** When `quality.short_read_rna_dual_caller.enabled: true`, mitochondrial-to-mitochondrial records from STAR `Chimeric.out.junction` are evaluated alongside minimap2 remap evidence. STAR supplies an additional short-read junction-detection route; it does not replace competitive whole-genome read selection or circular mitochondrial remapping. STAR and minimap2 rows are converted to the same directed circular coordinate model, and the same physical observation supporting the same event in both callers is counted once. STAR-Fusion is not used.
 
 **Supplementary configured sequence searches.** Dataset configs can define literal breakpoint-spanning sequences to search in the retained remap-input FASTQs. This is useful for sanity-checking named deletions such as the human common mtDNA deletion, but it only detects the configured motifs and is not a replacement for the remapped split-read caller.
 
@@ -26,11 +28,11 @@ Main stages:
 3. Use a first-pass genome alignment to select reads whose best/selected evidence is mitochondrial.
 4. Optionally run configured literal sequence searches over retained remap-input FASTQs.
 5. Remap retained reads with minimap2 to normal and rotated mitochondrial references.
-6. Infer deletion-like events from minimap2 split/supplementary alignments.
-7. Convert rotated coordinates back to original mtDNA coordinates.
-8. Canonicalize circular breakpoint pairs and deduplicate support across rotations.
-9. Annotate exact deletions by affected mitochondrial features and configured deletion target matches.
-10. Build exact-deletion and affected-feature matrices, statistics, plots, and report.
+6. Infer deletion-like events from minimap2 split/supplementary alignments and, when configured for short-read RNA, STAR chimeric alignments.
+7. Convert all evidence to directed original-reference mtDNA coordinates.
+8. Canonicalize circular breakpoints and deduplicate physical observations across rotations and callers.
+9. Annotate exact deletions, assign evidence-quality tiers, and record caller concordance and quality flags.
+10. Build separate stringent, standard, and exploratory matrices, statistics, plots, and reports from the same canonical event set.
 
 ## Result Levels
 
@@ -38,13 +40,13 @@ The report is organized around the following result levels.
 
 **Exact deletions** are directed coordinate-level inferred deletion models. They have alignment-directed left and right retained-flanking breakpoints, deleted size, wrapping status, complement diagnostics, direction and rotation status, support, normalized support, sample/group labels, and optional configured target labels such as the human common mtDNA deletion.
 
-For each exact deletion, the workflow also estimates local reference-spanning support at the two breakpoints. This asks a narrow question: in the same mitochondrial remap stream, how many primary alignments span the left and right breakpoint neighborhoods without requiring a deletion split? The workflow counts local spanning depth in the normal and rotated mitochondrial remaps and uses the larger count for each breakpoint, which avoids summing the same evidence twice across rotations. The report gives the left and right reference-spanning counts, the smaller of those two counts, and a local split-support fraction:
+For each exact deletion with minimap2 remap evidence, the workflow also estimates local reference-spanning support at the two breakpoints. This asks a narrow question: in the same mitochondrial remap stream, how many primary alignments span the left and right breakpoint neighborhoods without requiring a deletion split? The workflow counts local spanning depth in the normal and rotated mitochondrial remaps and uses the larger count for each breakpoint, which avoids summing the same evidence twice across rotations. STAR-only calls are marked unavailable because a STAR chimeric numerator and minimap2 remap denominator would not be comparable. The report gives the left and right reference-spanning counts, the smaller of those two counts, and a local split-support fraction:
 
 `split-supporting reads / (split-supporting reads + minimum local reference-spanning reads)`
 
 This is a local alignment-support metric, not the denominator used for the main per-million plots. For RNA data, it should not be interpreted as mtDNA heteroplasmy. For DNA data, it is a local breakpoint-support summary rather than a complete heteroplasmy model unless the dataset and coverage assumptions justify that interpretation. It is most interpretable when reads are long enough to span the configured breakpoint windows and when both breakpoint neighborhoods have coverage. The denominator is calculated for remap-called exact deletions because the numerator and reference-spanning counts come from the same remapped read set. Configured sequence searches are kept as supplementary literal motif checks; their counts are not converted into this denominator because a motif hit alone does not define the comparable non-deletion spanning-read population.
 
-**Affected-feature categories** are biology-level events. For each deletion, the workflow determines which annotated mitochondrial genes or features overlap the deleted interval. Feature names come from the reference annotation, are sorted by genomic order, and are joined with `+`, for example `MT-ATP6+MT-CO3+MT-ND3`. This makes group comparisons more stable when breakpoints vary slightly but affect the same genes.
+**Affected-feature categories** are deterministic interval annotations, not exact-deletion identities. For each deletion, the workflow determines which annotated mitochondrial genes or features overlap the deleted interval. Feature names come from the reference annotation, are sorted by genomic order, and are joined with `+`, for example `MT-ATP6+MT-CO3+MT-ND3`. This makes group comparisons more stable when breakpoints vary slightly but affect the same genes.
 
 The annotation step reduces raw GTF rows to one biological feature per gene/name before assigning affected-feature labels. This avoids counting separate gene, transcript, exon, and CDS records for the same biological feature. Dataset configs can add noncoding mitochondrial regions under `analysis.mt_regions`, such as control-region/D-loop intervals, direct-repeat windows, origins, or other coordinate intervals that are biologically useful but absent from the GTF.
 
@@ -104,7 +106,7 @@ split reads are excluded from deletion burden, exact-deletion, affected-feature,
 and group-comparison summaries. Their counts are reported in QC tables so
 the filtering is visible.
 
-Current filters and annotations include:
+Filters and annotations include:
 
 - minimum anchor length on both sides of a split;
 - minimum and maximum deletion size;
@@ -138,14 +140,14 @@ Important configurable settings:
 - `analysis.known_sequence_searches`: supplementary literal motif checks. If a search also provides `left_breakpoint`/`right_breakpoint` or has coordinate-like text such as `mtDNA_8471_13449`, the workflow uses that as an additional configured deletion target for labeling nearby remap calls.
 - `analysis.effect_size_pseudocount_per_million`
 - `annotations.feature_aliases`
+- `quality.enabled`: enables canonical quality evidence tables and profile reports.
+- `quality.minimum_supported_observations` and `quality.minimum_strong_observations`: define the observation-count components of evidence tiers.
+- `quality.primary_report_profile`: identifies the profile presented as the primary interpretation in the report index.
+- `quality.report_profiles.<profile>.include_tiers`: defines cumulative profile membership without changing stable exact-deletion IDs.
+- `quality.short_read_rna_dual_caller.enabled`: enables STAR chimeric evidence in addition to minimap2 remap evidence for explicitly configured short-read RNA datasets.
+- `quality.short_read_rna_dual_caller.star_min_anchor_length`, `star_max_query_overlap_bp`, `star_max_query_gap_bp`, `star_require_gene_anchors`, and `star_exclude_same_gene`: define STAR-specific candidate filters.
 
-Future improvements to consider:
-
-- richer mitochondrial transcript-processing site models;
-- explicit artifact tiers such as high-confidence deletion-like, processing-compatible, ambiguous, and likely artifact;
-- read-level evidence summaries for top calls;
-- optional candidate-junction template realignment;
-- optional confirmation with BWA-MEM2 or another short-read split aligner.
+The quality layer records caller provenance, physical-observation support, within-sample replication, cross-caller corroboration, alignment geometry, breakpoint dispersion, rotation support, transcript compatibility, and applicable quality flags. These fields remain visible in the canonical tables even when a report profile excludes the event.
 
 `mt_realign.minimap2_index_extra` is for index-sensitive minimap2 settings such
 as `-k` and `-w`. Put those settings there so the `.mmi` index is built with the
@@ -156,18 +158,16 @@ profiles cannot silently reuse the same whole-genome or mitochondrial index.
 
 ## Mapper Choices And Read Types
 
-The current default workflow uses competitive whole-genome first-pass assignment followed by minimap2 mitochondrial remapping. In default short-read mode, STAR maps reads to the full genome including mtDNA and streams the unsorted alignment output directly into the mitochondrial-read selector. The selector uses read-name collation, not a full coordinate BAM plus name-sort, so the default path keeps the small remap-input FASTQs and STAR logs rather than large whole-genome BAMs. For long-read mode, minimap2 can map reads to the full genome including mtDNA and retain reads whose best evidence is mitochondrial. STAR or minimap2 first-pass output is read-selection/provenance, not a separate reported biological deletion stream.
-
-For short-read first-pass assignment, HISAT2 is worth evaluating because it is fast and may be sufficient if the goal is to assign reads competitively between nuclear and mitochondrial references. It is not the default because this repository currently has tested workflow rules for STAR and minimap2 first-pass selection, while HISAT2 would add another index/output convention to validate.
+The default workflow uses competitive whole-genome first-pass assignment followed by minimap2 mitochondrial remapping. In short-read mode, STAR maps reads to the full genome including mtDNA and streams the unsorted alignment output directly into the mitochondrial-read selector. The selector uses read-name collation, not a full coordinate BAM plus name-sort, so the path keeps the small remap-input FASTQs and STAR logs rather than large whole-genome BAMs. When the short-read RNA dual-caller quality stream is enabled, STAR chimeric junction records also contribute candidate evidence after STAR-specific filtering and canonicalization. For long-read mode, minimap2 maps reads to the full genome including mtDNA and retains reads whose best evidence is mitochondrial.
 
 For long-read inputs, minimap2 is the natural first-pass mapper. Set `mapping.first_pass_aligner: minimap2` and choose a preset appropriate to the chemistry and assay. For RNA, use a splice-aware transcriptomic preset when nuclear mapping needs to recognize introns. For DNA, use a genomic long-read preset. The mitochondrial remap step can also use minimap2 for long reads, but should use a long-read preset and less short-read-specific split-segment assumptions.
 
-Phase 2 currently uses direct split/supplementary read alignments to support inferred deletion models. It does not infer deletions from mate-pair distance alone. For paired short reads, mate information can help QC or future confidence scoring, but the reported deletion calls require breakpoint-spanning split evidence after circular coordinate handling.
+Deletion evidence requires a valid breakpoint-spanning split or gapped alignment within one read. The workflow does not infer deletions from mate-pair distance alone. Paired-end identifiers are collapsed to fragment-level observations after candidate generation, but mates are never joined to create a deletion call.
 
 The first-pass selection mode is controlled by `mapping.first_pass_read_selection`:
 
 - `whole_genome_mt_best` maps against the full genome including mtDNA and passes reads with mitochondrial best/selected evidence to mitochondrial remapping. This is the default. With `mapping.first_pass_aligner: star`, this path streams STAR output through read-name collation into the selector and does not create full-genome BAMs.
-- `nuclear_unmapped_reads` maps against a nuclear-only reference and passes unmapped reads to mitochondrial remapping. This is retained for strict depletion-style sensitivity checks, but it can discard real mitochondrial reads with NUMT-like nuclear alignments.
+- `nuclear_unmapped_reads` maps against a nuclear-only reference and passes unmapped reads to mitochondrial remapping. This mode provides a strict depletion-style sensitivity check but can discard real mitochondrial reads with NUMT-like nuclear alignments.
 - `mt_evidence_reads` is an alternative mode that maps against the full genome and scans the BAM/chimeric output for mitochondrial evidence before remapping.
 
 The first-pass aligner is controlled by `mapping.first_pass_aligner`. In `whole_genome_mt_best` mode, the implemented choices are `star` for short-read RNA-oriented workflows and `minimap2` for long-read, DNA, or mapper-sensitivity experiments. The `mapping.keep_ambiguous_mt_nuclear_reads` setting controls whether reads whose primary evidence is mitochondrial but whose MAPQ or secondary alignments suggest nuclear ambiguity are retained for remapping.
@@ -216,7 +216,9 @@ Resolved SRA metadata is cached under `metadata/cache/`. Once a cache file exist
 
 ## Report Outputs
 
-The main report answers:
+Open `results/<dataset>/quality/report/index.html` to choose among the three evidence profiles. `standard` is the primary interpretation, `stringent` restricts the same canonical event set to strong evidence, and `exploratory` adds review-tier events. Each profile recalculates its own matrices, comparisons, plots, and ordinations.
+
+The profile reports answer:
 
 - do groups differ in total deletion burden?
 - do groups differ in the number of distinct deletions?
@@ -242,6 +244,7 @@ Main plots include:
 - per-gene affected burden;
 - group-colored exact deletion recurrence;
 - PCA and Bray-Curtis MDS for exact deletions and affected-feature categories, without static sample labels or centroids.
+- mitochondrial gene-pair PCA for datasets with the configured short-read RNA STAR evidence stream.
 
 Plot group order and colors are chosen once per report and reused across plots. For two-factor designs with `age` and `treatment`, groups are ordered by age and then treatment, with control-like groups first within each age. Control-like groups use subdued colors and treatment groups use red-family colors when possible.
 
@@ -290,11 +293,7 @@ fastp --version
 seqkit version
 ```
 
-Then run a workflow dry-run before downloading data or building results:
-
-```bash
-snakemake --configfile config/datasets/rat_aging_muscle.yaml --dry-run --cores 1
-```
+Use the dataset-specific dry-run command below before downloading data or building results. The explicit report target and `--rerun-triggers mtime` keep the planned job list tied to the requested dataset output.
 
 Snakemake can also create per-rule environments under `.snakemake/conda/` when `--use-conda` is used.
 
@@ -309,7 +308,7 @@ a clean run.
 Dry-run first:
 
 ```bash
-snakemake results/rat_aging_muscle/rat_aging_muscle_deliverables/DELIVERABLES_COMPLETE.txt \
+snakemake results/rat_aging_muscle/quality/report/index.html \
   --use-conda --cores 8 \
   --resources download=2 \
   --configfile config/datasets/rat_aging_muscle.yaml \
@@ -322,7 +321,7 @@ snakemake results/rat_aging_muscle/rat_aging_muscle_deliverables/DELIVERABLES_CO
 Then run:
 
 ```bash
-snakemake results/rat_aging_muscle/rat_aging_muscle_deliverables/DELIVERABLES_COMPLETE.txt \
+snakemake results/rat_aging_muscle/quality/report/index.html \
   --use-conda --cores 8 \
   --resources download=2 \
   --configfile config/datasets/rat_aging_muscle.yaml \
@@ -334,7 +333,7 @@ snakemake results/rat_aging_muscle/rat_aging_muscle_deliverables/DELIVERABLES_CO
 Main report:
 
 ```text
-results/rat_aging_muscle/rat_aging_muscle_deliverables/index.html
+results/rat_aging_muscle/quality/report/index.html
 ```
 
 ## Run The Human Common Deletion Dataset
@@ -356,7 +355,7 @@ These can be raw BCLConvert FASTQs. The normal workflow stages local FASTQs, run
 Dry-run first:
 
 ```bash
-snakemake results/human_common_deletion/human_common_deletion_deliverables/DELIVERABLES_COMPLETE.txt \
+snakemake results/human_common_deletion/quality/report/index.html \
   --use-conda --cores 8 \
   --configfile config/datasets/human_common_deletion.yaml \
   --rerun-triggers mtime \
@@ -368,7 +367,7 @@ snakemake results/human_common_deletion/human_common_deletion_deliverables/DELIV
 Then run:
 
 ```bash
-snakemake results/human_common_deletion/human_common_deletion_deliverables/DELIVERABLES_COMPLETE.txt \
+snakemake results/human_common_deletion/quality/report/index.html \
   --use-conda --cores 8 \
   --configfile config/datasets/human_common_deletion.yaml \
   --rerun-triggers mtime \
@@ -379,7 +378,7 @@ snakemake results/human_common_deletion/human_common_deletion_deliverables/DELIV
 Main report:
 
 ```text
-results/human_common_deletion/human_common_deletion_deliverables/index.html
+results/human_common_deletion/quality/report/index.html
 ```
 
 ## Run The Matched Human Bulk RNA-seq Dataset
@@ -395,7 +394,7 @@ config/datasets/human_bulkseq_matched_nanopore.yaml
 Dry-run first:
 
 ```bash
-snakemake results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_deliverables/DELIVERABLES_COMPLETE.txt \
+snakemake results/human_bulkseq_matched_nanopore/quality/report/index.html \
   --use-conda --cores 8 \
   --configfile config/datasets/human_bulkseq_matched_nanopore.yaml \
   --rerun-triggers mtime \
@@ -407,7 +406,7 @@ snakemake results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_
 Then run:
 
 ```bash
-snakemake results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_deliverables/DELIVERABLES_COMPLETE.txt \
+snakemake results/human_bulkseq_matched_nanopore/quality/report/index.html \
   --use-conda --cores 8 \
   --configfile config/datasets/human_bulkseq_matched_nanopore.yaml \
   --rerun-triggers mtime \
@@ -418,7 +417,7 @@ snakemake results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_
 Main report:
 
 ```text
-results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_deliverables/index.html
+results/human_bulkseq_matched_nanopore/quality/report/index.html
 ```
 
 ## Run The Human Nanopore Dataset
@@ -441,7 +440,7 @@ This config disables FastQC and fastp trimming, stages the local uncompressed FA
 Dry-run first:
 
 ```bash
-snakemake results/human_nanopore/human_nanopore_deliverables/DELIVERABLES_COMPLETE.txt \
+snakemake results/human_nanopore/quality/report/index.html \
   --use-conda \
   --cores 8 \
   --configfile config/datasets/human_nanopore.yaml \
@@ -454,7 +453,7 @@ snakemake results/human_nanopore/human_nanopore_deliverables/DELIVERABLES_COMPLE
 Then run:
 
 ```bash
-snakemake results/human_nanopore/human_nanopore_deliverables/DELIVERABLES_COMPLETE.txt \
+snakemake results/human_nanopore/quality/report/index.html \
   --use-conda \
   --cores 8 \
   --configfile config/datasets/human_nanopore.yaml \
@@ -466,7 +465,7 @@ snakemake results/human_nanopore/human_nanopore_deliverables/DELIVERABLES_COMPLE
 Main report:
 
 ```text
-results/human_nanopore/human_nanopore_deliverables/index.html
+results/human_nanopore/quality/report/index.html
 ```
 
 ## Advanced: Rerun From Existing Trimmed FASTQs
@@ -476,7 +475,7 @@ Use this only when downloads and trimming are already complete and you do not wa
 Dry-run first:
 
 ```bash
-snakemake results/rat_aging_muscle/rat_aging_muscle_deliverables/DELIVERABLES_COMPLETE.txt \
+snakemake results/rat_aging_muscle/quality/report/index.html \
   --use-conda \
   --cores 8 \
   --configfile config/datasets/rat_aging_muscle.yaml \
@@ -489,45 +488,31 @@ Check that the dry-run does not include `prepare_reads`, `fastqc_raw`, or `trim_
 
 ## Key Outputs
 
-Final deliverables:
+Report and canonical evidence outputs:
 
-- `results/<dataset>/<dataset>_deliverables/index.html`
-- `results/<dataset>/<dataset>_deliverables/tables/`
-- `results/<dataset>/<dataset>_deliverables/plots/`
-- `results/<dataset>/<dataset>_deliverables/matrices/`
-- `results/<dataset>/<dataset>_deliverables/config/resolved_config.yaml`
+- `results/<dataset>/quality/report/index.html` - profile selector and profile counts.
+- `results/<dataset>/quality/shared/` - canonical source, observation, cluster, tier, profile-membership, and resolved-configuration tables.
+- `results/<dataset>/quality/profiles/<profile>/.report/index.html` - one complete profile report.
+- `results/<dataset>/quality/profiles/<profile>/junctions/` - profile-filtered canonical exact deletions and observations.
+- `results/<dataset>/quality/profiles/<profile>/plots/` - profile-specific plots.
+- `results/<dataset>/quality/profiles/<profile>/matrices/` - profile-specific matrices.
+- `results/<dataset>/quality/profiles/<profile>/analysis/` - profile-specific statistics and summaries.
 
 Important machine-readable outputs:
 
-- `junctions/junction_clusters.tsv` - alignment-directed exact deletions with annotation, direction status, complement diagnostics, rotation agreement, and schema version.
-- `junctions/all_samples.filtered_junction_reads.tsv` - filtered remap read-level rows before matrix-level normal/rotated deduplication.
-- `junctions/ambiguous_direction_reads.tsv` - reciprocal-direction conflicts retained for audit and excluded from primary summaries by default.
-- `<dataset>_deliverables/tables/run_methods.tsv` - machine-readable resolved settings used by the run.
-- `<dataset>_deliverables/tables/data_dictionary.tsv` - delivered table/column inventory and definitions.
-- `analysis/breakpoint_reference_support.tsv` - local reference-spanning read counts at exact-deletion breakpoints and the resulting local split-support fraction.
-- `matrices/exact_deletion_raw_counts.tsv`
-- `matrices/exact_deletion_support_per_million_mt_reads.tsv`
-- `matrices/affected_feature_raw_counts.tsv`
-- `matrices/affected_feature_support_per_million_mt_reads.tsv`
-- `analysis/deletion_burden.tsv`
-- `analysis/exact_deletion_comparison.tsv`
-- `analysis/affected_feature_comparison.tsv`
-- `analysis/feature_impact_class_comparison.tsv`
-- `analysis/deletion_size_distribution_tests.tsv`
-- `analysis/deletion_size_bin_summary.tsv`
-- `analysis/factorial_model_summary.tsv` when a two-factor age-by-treatment design is available
-- `analysis/per_gene_affected_burden.tsv`
-- `analysis/qc_summary.tsv`
-- `analysis/known_sequence_search_summary.tsv` when configured sequence searches are present
-- `analysis/known_sequence_search_hits.tsv` when configured sequence searches are present
+- `quality/shared/source_candidates.tsv` - caller candidates and explicit pass/fail reasons.
+- `quality/shared/canonical_observations.tsv` - cross-rotation and cross-caller deduplicated physical observations.
+- `quality/shared/canonical_clusters.tsv` - stable exact deletion IDs, support, annotations, caller status, evidence tier, and quality flags.
+- `quality/shared/ambiguous_direction_observations.tsv` - reciprocal-direction conflicts retained for audit.
+- `quality/shared/report_profile_membership.tsv` - stable cluster membership in every report profile.
+- `quality/profiles/<profile>/matrices/gene_pair_support_per_million.tsv` - short-read RNA gene-pair aggregation when applicable.
+- `quality/shared/breakpoint_reference_support.tsv` - local remap reference-spanning support when applicable.
 
-The `*_per_million_mt_reads.tsv` filenames are stable output names and do not identify the normalization denominator by themselves. Check the `normalization_denominator` and `normalization_reads` columns in `analysis/deletion_burden.tsv` and the report method table to determine whether the run used total usable reads or retained mitochondrial-evidence reads as the denominator.
+The `*_per_million_mt_reads.tsv` filenames are stable output names and do not identify the normalization denominator by themselves. Check the `normalization_denominator` and `normalization_reads` columns in `quality/profiles/<profile>/analysis/deletion_burden.tsv` and the report method table to determine whether the run used total usable reads or retained mitochondrial-evidence reads as the denominator.
 
-For usability, the HTML report embeds a filtered exact-deletions table by default: exact deletions with at least 50 supporting reads are shown, and configured deletion-target matches are always retained. The complete unfiltered exact-deletion table is delivered as `tables/exact_deletions.tsv`. Adjust this display-only behavior with `report.exact_deletion_table` in the configuration.
+For usability, each HTML profile report embeds a filtered exact-deletions table by default: exact deletions with at least 50 supporting reads are shown, and configured deletion-target matches are always retained. The complete profile call set is in `quality/profiles/<profile>/junctions/junction_clusters.tsv`; the canonical all-tier set is in `quality/shared/canonical_clusters.tsv`. Adjust this display-only behavior with `report.exact_deletion_table` in the configuration.
 
 When read-level evidence is available, the HTML report links read-count cells to sidecar TSVs in `read_lists/`. Exact-deletion support counts link to the reads supporting that deletion, configured deletion-target remap counts link to the reads supporting all nearby remap calls assigned to that target, and configured sequence-search counts link to reads containing the configured literal motif.
-
-The dataset name is included in the deliverables folder name so copied report folders from different datasets do not overwrite each other.
 
 ## Testing
 
@@ -538,7 +523,7 @@ python -m pytest -q
 
 ## About `fasterq.tmp.*` Folders
 
-`fasterq-dump` can create temporary folders named like `fasterq.tmp.<host>.<pid>` if it is not given an explicit temp path. The workflow wrapper passes an explicit temp directory inside each accession staging directory under `results/<dataset>/fastq/.<accession>.fasterq/tmp`. Old top-level `fasterq.tmp.*` folders are leftover scratch folders and should not be committed.
+`fasterq-dump` can create temporary folders named like `fasterq.tmp.<host>.<pid>` if it is not given an explicit temp path. The workflow wrapper passes an explicit temp directory inside each accession staging directory under `results/<dataset>/fastq/.<accession>.fasterq/tmp`. Top-level `fasterq.tmp.*` folders are scratch output and should not be committed.
 
 ## Notes For Making This A Git Repository
 

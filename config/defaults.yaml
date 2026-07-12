@@ -145,6 +145,25 @@ report:
     min_total_supporting_reads: 50
     always_include_configured_targets: true
     max_rows: 500
+quality:
+  enabled: true
+  primary_report_profile: standard
+  minimum_supported_observations: 2
+  minimum_strong_observations: 2
+  report_profiles:
+    stringent:
+      include_tiers: [strong]
+    standard:
+      include_tiers: [strong, supported]
+    exploratory:
+      include_tiers: [strong, supported, review]
+  short_read_rna_dual_caller:
+    enabled: false
+    star_min_anchor_length: 12
+    star_max_query_overlap_bp: 20
+    star_max_query_gap_bp: 20
+    star_require_gene_anchors: true
+    star_exclude_same_gene: true
 analysis:
   normalization_denominator: total_usable_reads
   pseudocount: 1.0e-09

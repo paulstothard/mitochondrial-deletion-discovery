@@ -22,6 +22,9 @@ mt_realign:
   max_query_gap_bp: 30
 junctions:
   min_anchor_length: 15
+quality:
+  short_read_rna_dual_caller:
+    enabled: true
 references:
   rat:
     genome_path: inputs/references/rat/genome.fa

@@ -31,6 +31,9 @@ mapping:
   star_genome_sa_index_nbases: 14
 mt_realign:
   minimap2_index_extra: -k21 -w11
+quality:
+  short_read_rna_dual_caller:
+    enabled: true
 annotations:
   expected_adjacent_transcripts:
   - species: human

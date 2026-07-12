@@ -154,6 +154,15 @@ def empty(path: str, title: str, message: str = "No data available for this plot
     save(fig, path)
 
 
+def gene_pair_pca_enabled(config: dict) -> bool:
+    """Return whether the configured evidence model supports STAR gene-pair PCA."""
+    return bool(
+        (config.get("quality", {}) or {})
+        .get("short_read_rna_dual_caller", {})
+        .get("enabled", False)
+    )
+
+
 def rainfall_support_limits(values: pd.Series | np.ndarray) -> tuple[float, float]:
     support = pd.to_numeric(pd.Series(values), errors="coerce")
     support = support[np.isfinite(support) & (support > 0)]
@@ -1098,6 +1107,13 @@ def rank_label_color(support: float, support_norm: colors.Normalize, cmap) -> st
     return "#111827" if luminance >= 0.53 else "#ffffff"
 
 
+def rank_label_boxes_overlap(first: tuple[float, float, float], second: tuple[float, float, float]) -> bool:
+    """Return true when two display-coordinate label clearance circles overlap."""
+    x1, y1, radius1 = first
+    x2, y2, radius2 = second
+    return float(np.hypot(x1 - x2, y1 - y2)) < 0.72 * (radius1 + radius2)
+
+
 def adjusted_breakpoint_ticks(genome_length: int, y_max: float) -> tuple[list[float], list[str]]:
     base_ticks = [0, 2000, 4000, 6000, 8000, 10000, 12000, 14000, genome_length]
     ticks = [float(tick) for tick in base_ticks if tick <= y_max]
@@ -1541,11 +1557,19 @@ def draw_location_rank_labels(
     work = data.copy()
     work["_marker_area"] = rainfall_point_sizes(work["_plot_support"], support_min, support_max)
     labeled = 0
-    # Lower-support labels are drawn first so the most-supported ranks remain on top.
-    for _, row in work.sort_values("_support_rank", ascending=False, kind="mergesort").iterrows():
+    occupied = []
+    ax.figure.canvas.draw()
+    # Highest-support ranks claim space first. Lower ranks are omitted when labels would merge visually.
+    for _, row in work.sort_values("_support_rank", ascending=True, kind="mergesort").iterrows():
         rank = int(row["_support_rank"])
         font_size = rank_label_font_size(float(row["_marker_area"]), rank)
         if font_size is None:
+            continue
+        display_x, display_y = ax.transData.transform((float(row[x_col]), float(row[y_col])))
+        marker_radius = np.sqrt(float(row["_marker_area"])) * ax.figure.dpi / 72.0 / 2.0
+        text_radius = font_size * ax.figure.dpi / 72.0 * max(1.0, 0.42 * len(str(rank)))
+        label_box = (float(display_x), float(display_y), max(text_radius, marker_radius * 0.38))
+        if any(rank_label_boxes_overlap(label_box, prior) for prior in occupied):
             continue
         ax.text(
             float(row[x_col]),
@@ -1559,6 +1583,7 @@ def draw_location_rank_labels(
             clip_on=True,
             zorder=20,
         )
+        occupied.append(label_box)
         labeled += 1
     return labeled
 
@@ -1602,13 +1627,14 @@ def location_rainfall(
         else:
             cmap = location_support_colormap()
             scatter = draw_location_points(ax, sub, "_plot_x", "deleted_size", support_min, support_max, support_norm, cmap, outline_crossing=True)
-            draw_location_rank_labels(ax, sub, "_plot_x", "deleted_size", support_min, support_max, support_norm, cmap)
         ax.set_title(f"{title_prefix}: {group}")
         ax.set_ylabel("Deleted size (bp)")
         y_max = max(10_000, float(sub["deleted_size"].max()) * 1.18) if not sub.empty else 10_000
         ax.set_ylim(y_axis_min, y_max)
         format_deletion_size_log_axis(ax)
         ax.set_xlim(1, genome_length)
+        if not sub.empty:
+            draw_location_rank_labels(ax, sub, "_plot_x", "deleted_size", support_min, support_max, support_norm, cmap)
         draw_location_feature_track(feature_ax, plot_features, genome_length, x_min=1, x_max=genome_length)
         feature_ax.set_xlabel(x_label)
         if scatter is not None:
@@ -1665,11 +1691,12 @@ def breakpoint_pair_support_map(display_grouped: pd.DataFrame, groups: list[str]
             )
             cmap = location_support_colormap()
             scatter = draw_location_points(ax, pairs, "left_breakpoint", "adjusted_right_breakpoint", support_min, support_max, support_norm, cmap, outline_crossing=True)
-            draw_location_rank_labels(ax, pairs, "left_breakpoint", "adjusted_right_breakpoint", support_min, support_max, support_norm, cmap)
         y_max = max(float(genome_length), float(sub["adjusted_right_breakpoint"].max()) if not sub.empty else float(genome_length))
         y_axis_max = y_max + max(250.0, (y_max - 1.0) * 0.035)
         ax.set_xlim(0, genome_length)
         ax.set_ylim(0, y_axis_max)
+        if not sub.empty:
+            draw_location_rank_labels(ax, pairs, "left_breakpoint", "adjusted_right_breakpoint", support_min, support_max, support_norm, cmap)
         y_ticks, y_labels = adjusted_breakpoint_ticks(genome_length, y_axis_max)
         ax.set_yticks(y_ticks)
         ax.set_yticklabels(y_labels)
@@ -1938,6 +1965,7 @@ def main() -> None:
     parser.add_argument("--affected-raw", required=True)
     parser.add_argument("--affected-mtpm", required=True)
     parser.add_argument("--impact-class-mtpm", required=True)
+    parser.add_argument("--gene-pair-mtpm", default="")
     parser.add_argument("--per-gene-burden", required=True)
     parser.add_argument("--exact-comparison", required=True)
     parser.add_argument("--group-column", default="")
@@ -1967,6 +1995,7 @@ def main() -> None:
     parser.add_argument("--out-exact-mds", required=True)
     parser.add_argument("--out-affected-pca", required=True)
     parser.add_argument("--out-affected-mds", required=True)
+    parser.add_argument("--out-gene-pair-pca", default="")
     parser.add_argument("--rainfall-min-support-per-million", type=float, default=0.0)
     parser.add_argument("--rainfall-max-points-per-group", type=int, default=0)
     parser.add_argument("--endpoint-density-bin-size", type=int, default=50)
@@ -1986,6 +2015,7 @@ def main() -> None:
     affected_raw = read_tsv_safe(args.affected_raw)
     affected_mtpm = read_tsv_safe(args.affected_mtpm)
     impact_mtpm = read_tsv_safe(args.impact_class_mtpm)
+    gene_pair_mtpm = read_tsv_safe(args.gene_pair_mtpm) if args.gene_pair_mtpm else pd.DataFrame()
     per_gene = read_tsv_safe(args.per_gene_burden)
     comparison = normalize_deletion_ids(read_tsv_safe(args.exact_comparison))
     support_label = f"Support {per_million_phrase(burden)}"
@@ -2031,6 +2061,15 @@ def main() -> None:
     ordination(exact_mtpm, samples, args.group_column, args.out_exact_mds, "Exact Deletion Bray-Curtis MDS", "mds")
     ordination(affected_mtpm, samples, args.group_column, args.out_affected_pca, "Affected-Feature PCA", "pca")
     ordination(affected_mtpm, samples, args.group_column, args.out_affected_mds, "Affected-Feature Bray-Curtis MDS", "mds")
+    if args.out_gene_pair_pca:
+        if gene_pair_pca_enabled(config):
+            ordination(gene_pair_mtpm, samples, args.group_column, args.out_gene_pair_pca, "Mitochondrial Gene-Pair PCA", "pca")
+        else:
+            empty(
+                args.out_gene_pair_pca,
+                "Mitochondrial Gene-Pair PCA",
+                "This view applies only when the short-read RNA STAR evidence stream is enabled",
+            )
 
 
 if __name__ == "__main__":

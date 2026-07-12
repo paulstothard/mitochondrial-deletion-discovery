@@ -63,6 +63,10 @@ junctions:
   require_same_orientation: true
   exclude_expected_transcript_junctions: true
 
+quality:
+  short_read_rna_dual_caller:
+    enabled: true
+
 annotations:
   expected_adjacent_transcripts:
     - species: human

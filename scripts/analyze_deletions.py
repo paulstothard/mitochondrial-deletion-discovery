@@ -14,6 +14,13 @@ from scipy.stats import fisher_exact, ks_2samp, linregress, mannwhitneyu, spearm
 from common import ensure_parent
 
 
+def read_tsv_safe(path: str) -> pd.DataFrame:
+    try:
+        return pd.read_csv(path, sep="\t")
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
+
+
 def bh(p_values: list[float]) -> list[float]:
     indexed = [(i, p) for i, p in enumerate(p_values) if pd.notna(p)]
     adjusted = [float("nan")] * len(p_values)
@@ -477,6 +484,8 @@ def main() -> None:
     parser.add_argument("--out-affected-mtpm", required=True)
     parser.add_argument("--out-impact-class-raw", required=True)
     parser.add_argument("--out-impact-class-mtpm", required=True)
+    parser.add_argument("--out-gene-pair-raw", default="")
+    parser.add_argument("--out-gene-pair-mtpm", default="")
     parser.add_argument("--out-per-gene-burden", required=True)
     parser.add_argument("--out-burden", required=True)
     parser.add_argument("--out-exact-comparison", required=True)
@@ -489,11 +498,11 @@ def main() -> None:
     parser.add_argument("--out-qc-summary", required=True)
     args = parser.parse_args()
 
-    samples = pd.read_csv(args.samples, sep="\t")
-    clusters = pd.read_csv(args.clusters, sep="\t")
-    id_map = pd.read_csv(args.id_map, sep="\t")
-    all_reads = pd.read_csv(args.all_reads, sep="\t")
-    ambiguous_reads = pd.read_csv(args.ambiguous_reads, sep="\t")
+    samples = read_tsv_safe(args.samples)
+    clusters = read_tsv_safe(args.clusters)
+    id_map = read_tsv_safe(args.id_map)
+    all_reads = read_tsv_safe(args.all_reads)
+    ambiguous_reads = read_tsv_safe(args.ambiguous_reads)
     if "exact_deletion_id" not in clusters.columns and "junction_id" in clusters.columns:
         clusters["exact_deletion_id"] = clusters["junction_id"]
     if "exact_deletion_id" not in all_reads.columns and "junction_id" in all_reads.columns:
@@ -546,6 +555,10 @@ def main() -> None:
     impact_raw = count_matrix(samples, annotated_reads, "feature_impact_class")
     impact_cols = [col for col in impact_raw.columns if col not in samples.columns]
     impact_mtpm = normalize_matrix(impact_raw, samples, denominator)
+
+    gene_pair_raw = count_matrix(samples, annotated_reads, "gene_pair_label")
+    gene_pair_cols = [col for col in gene_pair_raw.columns if col not in samples.columns]
+    gene_pair_mtpm = normalize_matrix(gene_pair_raw, samples, denominator)
 
     burden = samples.copy()
     burden["deletion_supporting_reads"] = exact_raw[exact_cols].sum(axis=1) if exact_cols else 0
@@ -668,6 +681,10 @@ def main() -> None:
         args.out_metadata_associations: metadata_assoc,
         args.out_qc_summary: qc,
     }
+    if args.out_gene_pair_raw:
+        outputs[args.out_gene_pair_raw] = gene_pair_raw
+    if args.out_gene_pair_mtpm:
+        outputs[args.out_gene_pair_mtpm] = gene_pair_mtpm
     for path, df in outputs.items():
         ensure_parent(path)
         if df is None or df.empty:

@@ -36,6 +36,51 @@ WORKDIR = CFG["project"]["work_dir"]
 REF = CFG["references"][SPECIES]
 MT_LENGTH = int(REF["mt_length"])
 MT_NAMES = ",".join(REF["mt_contig_names"])
+QUALITY_CFG = CFG.get("quality", {}) or {}
+QUALITY_ENABLED = bool(QUALITY_CFG.get("enabled", True))
+QUALITY_PROFILES = list((QUALITY_CFG.get("report_profiles", {}) or {"stringent": {}, "standard": {}, "exploratory": {}}))
+QUALITY_PRIMARY_PROFILE = str(QUALITY_CFG.get("primary_report_profile", "standard"))
+DUAL_CALLER_CFG = QUALITY_CFG.get("short_read_rna_dual_caller", {}) or {}
+SHORT_READ_RNA_DUAL_CALLER = bool(DUAL_CALLER_CFG.get("enabled", False))
+EXISTING_REFERENCE_SUPPORT = (
+    f"{OUTDIR}/analysis/breakpoint_reference_support.tsv"
+    if Path(f"{OUTDIR}/analysis/breakpoint_reference_support.tsv").exists()
+    else None
+)
+QUALITY_PLOT_NAMES = [
+    "deletion_burden_by_sample.pdf",
+    "unique_exact_deletions_by_sample.pdf",
+    "deletion_burden_factorial_interaction.pdf",
+    "unique_exact_deletions_factorial_interaction.pdf",
+    "deletion_size_distribution_unweighted.pdf",
+    "deletion_size_distribution_support_weighted.pdf",
+    "deletion_size_distribution_support_weighted_log_y.pdf",
+    "deletion_size_distribution_small.pdf",
+    "deletion_size_distribution_medium.pdf",
+    "deletion_size_distribution_large.pdf",
+    "deletion_rainfall_left_breakpoint.pdf",
+    "deletion_rainfall_right_breakpoint.pdf",
+    "deletion_rainfall_midpoint.pdf",
+    "breakpoint_pair_support_map.pdf",
+    "pooled_breakpoint_support_density.pdf",
+    "pooled_breakpoint_support_density_capped.pdf",
+    "affected_feature_support.pdf",
+    "affected_feature_counts.pdf",
+    "affected_feature_proportions.pdf",
+    "feature_impact_classes.pdf",
+    "per_gene_affected_burden.pdf",
+    "exact_deletion_recurrence.pdf",
+    "exact_deletion_pca.pdf",
+    "exact_deletion_bray_curtis_mds.pdf",
+    "affected_feature_pca.pdf",
+    "affected_feature_bray_curtis_mds.pdf",
+    "gene_pair_pca.pdf",
+]
+if SHORT_READ_RNA_DUAL_CALLER:
+    if CFG.get("dataset", {}).get("read_technology") != "illumina" or CFG.get("dataset", {}).get("molecule_type") != "rna":
+        raise ValueError("quality.short_read_rna_dual_caller requires an Illumina RNA dataset")
+    if CFG.get("mapping", {}).get("first_pass_aligner", "star") != "star":
+        raise ValueError("quality.short_read_rna_dual_caller requires STAR full-genome first-pass alignment")
 
 
 def minimap2_index_tag(preset, extra):
@@ -154,6 +199,16 @@ def rotated_sample_outputs(pattern):
     return lambda wildcards: expand(pattern, sample=sample_ids(wildcards), rotation=ROTATION_NAMES)
 
 
+def star_chimeric_sample_inputs(wildcards):
+    if not SHORT_READ_RNA_DUAL_CALLER:
+        return []
+    return expand(f"{OUTDIR}/alignments/full_stream/{{sample}}.Chimeric.out.junction", sample=sample_ids(wildcards))
+
+
+def quality_profile_plot_inputs(wildcards):
+    return [f"{OUTDIR}/quality/profiles/{wildcards.quality_profile}/plots/{name}" for name in QUALITY_PLOT_NAMES]
+
+
 def known_sequence_searches_configured():
     return bool(CFG.get("analysis", {}).get("known_sequence_searches", []) or [])
 
@@ -228,6 +283,7 @@ rule all:
         f"{OUTDIR}/analysis/known_sequence_search_summary.tsv",
         f"{OUTDIR}/analysis/known_sequence_search_hits.tsv",
         f"{OUTDIR}/.report/index.html",
+        f"{OUTDIR}/quality/report/index.html" if QUALITY_ENABLED else [],
         f"{OUTDIR}/.report/read_lists/manifest.tsv",
         f"{DELIVERABLES_DIR}/DELIVERABLES_COMPLETE.txt",
 
@@ -607,6 +663,7 @@ rule select_whole_genome_mt_star:
         tsv=f"{OUTDIR}/{WHOLE_GENOME_MT_STAR_RULE_DIR}/{{sample}}.mt_read_classification.tsv",
         summary=f"{OUTDIR}/{WHOLE_GENOME_MT_STAR_RULE_DIR}/{{sample}}.mt_read_summary.json",
         log=f"{OUTDIR}/alignments/full_stream/{{sample}}.Log.final.out",
+        junction=f"{OUTDIR}/alignments/full_stream/{{sample}}.Chimeric.out.junction",
     params:
         names=MT_NAMES,
         sample=lambda wildcards: wildcards.sample,
@@ -636,7 +693,8 @@ rule select_whole_genome_mt_star:
         "--min-mt-mapq {params.min_mt_mapq} --min-mt-aligned-fraction {params.min_mt_aligned_fraction} "
         "--ambiguous-mapq-below {params.ambiguous_mapq_below} "
         "--competing-nuclear-aligned-fraction {params.competing_nuclear_aligned_fraction} {params.keep_ambiguous} && "
-        "cp {params.prefix}Log.final.out {output.log}"
+        "cp {params.prefix}Log.final.out {output.log} && "
+        "if [ -f {params.prefix}Chimeric.out.junction ]; then mv {params.prefix}Chimeric.out.junction {output.junction}; else touch {output.junction}; fi"
 
 
 rule select_nuclear_unmapped_star:
@@ -865,6 +923,191 @@ rule annotate_junctions:
         "--mt-length {params.mt_length} --config {input.config} --output {output.clusters}"
 
 
+rule resolve_quality_config:
+    input:
+        defaults="config/defaults.yaml",
+        dataset=DATASET_CONFIG if DATASET_CONFIG else [],
+    output:
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+    params:
+        dataset_arg=f"--dataset-config {DATASET_CONFIG}" if DATASET_CONFIG else "",
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/resolve_quality_config.py --defaults {input.defaults} {params.dataset_arg} --output {output.config}"
+
+
+rule build_quality_evidence:
+    input:
+        minimap=rotated_sample_outputs(f"{OUTDIR}/deletions/rotated/{{rotation}}/{{sample}}.filtered_deletion_reads.tsv"),
+        star=star_chimeric_sample_inputs,
+        features=f"{OUTDIR}/annotations/mt_features.tsv",
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+    output:
+        candidates=f"{OUTDIR}/quality/shared/source_candidates.tsv",
+        observations=f"{OUTDIR}/quality/shared/canonical_observations.unannotated.tsv",
+        clusters=f"{OUTDIR}/quality/shared/canonical_clusters.unannotated.tsv",
+        id_map=f"{OUTDIR}/quality/shared/canonical_id_map.unannotated.tsv",
+        ambiguous=f"{OUTDIR}/quality/shared/ambiguous_direction_observations.tsv",
+        summary=f"{OUTDIR}/quality/shared/evidence_build_summary.tsv",
+    params:
+        slop=int(CFG["junctions"]["breakpoint_slop_bp"]),
+        min_deletion_size=int(CFG["junctions"]["min_deletion_size"]),
+        max_deletion_size=int(CFG["junctions"]["max_deletion_size"]),
+        star_min_anchor=int(DUAL_CALLER_CFG.get("star_min_anchor_length", 12)),
+        star_max_overlap=int(DUAL_CALLER_CFG.get("star_max_query_overlap_bp", 20)),
+        star_max_gap=int(DUAL_CALLER_CFG.get("star_max_query_gap_bp", 20)),
+        star_require_gene_anchors="--star-require-gene-anchors" if DUAL_CALLER_CFG.get("star_require_gene_anchors", True) else "",
+        star_exclude_same_gene="--star-exclude-same-gene" if DUAL_CALLER_CFG.get("star_exclude_same_gene", True) else "",
+        same_orientation="--require-same-orientation" if CFG["junctions"].get("require_same_orientation", True) else "",
+        ambiguous_direction_policy=CFG["junctions"].get("ambiguous_direction_policy", "exclude"),
+        result_schema_version="3.0-quality-evidence-multi-caller",
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/build_quality_evidence.py --species {SPECIES} --mt-length {MT_LENGTH} "
+        "--features {input.features} --config {input.config} "
+        "--mt-contig-names {MT_NAMES} --breakpoint-slop-bp {params.slop} "
+        "--min-deletion-size {params.min_deletion_size} --max-deletion-size {params.max_deletion_size} "
+        "--star-min-anchor-length {params.star_min_anchor} --star-max-query-overlap-bp {params.star_max_overlap} "
+        "--star-max-query-gap-bp {params.star_max_gap} {params.same_orientation} "
+        "{params.star_require_gene_anchors} {params.star_exclude_same_gene} "
+        "--ambiguous-direction-policy {params.ambiguous_direction_policy} --result-schema-version {params.result_schema_version} "
+        "--minimap-reads {input.minimap} --star-junctions {input.star} "
+        "--out-source-candidates {output.candidates} --out-observations {output.observations} "
+        "--out-clusters {output.clusters} --out-id-map {output.id_map} --out-ambiguous {output.ambiguous} "
+        "--out-summary {output.summary}"
+
+
+rule estimate_quality_reference_support:
+    input:
+        clusters=f"{OUTDIR}/quality/shared/canonical_clusters.unannotated.tsv",
+        observations=f"{OUTDIR}/quality/shared/canonical_observations.unannotated.tsv",
+        bams=rotated_sample_outputs(f"{OUTDIR}/mt_minimap2/{{rotation}}/{{sample}}.bam"),
+    output:
+        clusters=f"{OUTDIR}/quality/shared/canonical_clusters.with_reference_support.tsv",
+        support=f"{OUTDIR}/quality/shared/breakpoint_reference_support.tsv",
+    params:
+        rotation_starts=",".join(f"{name}:{start}" for name, start in ROTATION_STARTS.items()),
+        window=CFG["junctions"].get("reference_support_window_bp", 20),
+        min_mapq=CFG["mt_realign"].get("minimap2_min_mapq", 0),
+        existing_arg=(
+            f"--existing-reference-support {EXISTING_REFERENCE_SUPPORT}"
+            if EXISTING_REFERENCE_SUPPORT
+            else ""
+        ),
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/estimate_breakpoint_reference_support.py --clusters {input.clusters} "
+        "--all-reads {input.observations} --bam {input.bams} --rotation-starts {params.rotation_starts} "
+        "--mt-length {MT_LENGTH} --window-bp {params.window} --min-mapq {params.min_mapq} "
+        "{params.existing_arg} "
+        "--out-clusters {output.clusters} --out-reference-support {output.support}"
+
+
+rule annotate_quality_clusters:
+    input:
+        clusters=f"{OUTDIR}/quality/shared/canonical_clusters.with_reference_support.tsv",
+        features=f"{OUTDIR}/annotations/mt_features.tsv",
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+    output:
+        clusters=f"{OUTDIR}/quality/shared/canonical_clusters.annotated.tsv",
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/annotate_junctions.py --clusters {input.clusters} --features {input.features} "
+        "--mt-length {MT_LENGTH} --config {input.config} --output {output.clusters}"
+
+
+rule finalize_quality_evidence:
+    input:
+        clusters=f"{OUTDIR}/quality/shared/canonical_clusters.annotated.tsv",
+        observations=f"{OUTDIR}/quality/shared/canonical_observations.unannotated.tsv",
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+    output:
+        clusters=f"{OUTDIR}/quality/shared/canonical_clusters.tsv",
+        observations=f"{OUTDIR}/quality/shared/canonical_observations.tsv",
+        id_map=f"{OUTDIR}/quality/shared/canonical_id_map.tsv",
+        membership=f"{OUTDIR}/quality/shared/report_profile_membership.tsv",
+        summary=f"{OUTDIR}/quality/shared/quality_tier_summary.tsv",
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/finalize_quality_evidence.py --clusters {input.clusters} --observations {input.observations} "
+        "--config {input.config} --out-clusters {output.clusters} --out-observations {output.observations} "
+        "--out-id-map {output.id_map} --out-membership {output.membership} --out-summary {output.summary}"
+
+
+rule filter_quality_profile:
+    input:
+        clusters=f"{OUTDIR}/quality/shared/canonical_clusters.tsv",
+        observations=f"{OUTDIR}/quality/shared/canonical_observations.tsv",
+        id_map=f"{OUTDIR}/quality/shared/canonical_id_map.tsv",
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+    output:
+        clusters=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/junction_clusters.tsv",
+        observations=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/canonical_observations.tsv",
+        id_map=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/junction_id_map.tsv",
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/filter_quality_profile.py --profile {wildcards.quality_profile} "
+        "--clusters {input.clusters} --observations {input.observations} --id-map {input.id_map} --config {input.config} "
+        "--out-clusters {output.clusters} --out-observations {output.observations} --out-id-map {output.id_map}"
+
+
+rule analyze_quality_profile:
+    input:
+        samples=lambda wildcards: checkpoints.resolve_samples.get().output.samples,
+        clusters=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/junction_clusters.tsv",
+        observations=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/canonical_observations.tsv",
+        id_map=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/junction_id_map.tsv",
+        ambiguous=f"{OUTDIR}/quality/shared/ambiguous_direction_observations.tsv",
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+        counts=sample_outputs(f"{OUTDIR}/qc/{{sample}}/fragment_counts.tsv"),
+        mt_summaries=sample_outputs(f"{OUTDIR}/mt_reads/{{sample}}.mt_read_summary.json"),
+    output:
+        exact_raw=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/exact_deletion_raw_counts.tsv",
+        exact_mtpm=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/exact_deletion_support_per_million_mt_reads.tsv",
+        affected_raw=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/affected_feature_raw_counts.tsv",
+        affected_mtpm=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/affected_feature_support_per_million_mt_reads.tsv",
+        impact_raw=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/feature_impact_class_raw_counts.tsv",
+        impact_mtpm=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/feature_impact_class_support_per_million_mt_reads.tsv",
+        gene_pair_raw=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/gene_pair_raw_counts.tsv",
+        gene_pair_mtpm=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/gene_pair_support_per_million.tsv",
+        per_gene=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/per_gene_affected_burden.tsv",
+        burden=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_burden.tsv",
+        exact_comparison=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/exact_deletion_comparison.tsv",
+        affected_comparison=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/affected_feature_comparison.tsv",
+        impact_comparison=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/feature_impact_class_comparison.tsv",
+        size_tests=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_size_distribution_tests.tsv",
+        size_bin_summary=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_size_bin_summary.tsv",
+        factorial_model_summary=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/factorial_model_summary.tsv",
+        metadata_assoc=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_metadata_associations.tsv",
+        qc_summary=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/qc_summary.tsv",
+    params:
+        group=CFG["dataset"].get("primary_group_column", ""),
+        group_columns=",".join(CFG["dataset"].get("group_columns", [])),
+        normalization_denominator=CFG["analysis"].get("normalization_denominator", "total_usable_reads"),
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/analyze_deletions.py --samples {input.samples} --clusters {input.clusters} "
+        "--id-map {input.id_map} --all-reads {input.observations} --ambiguous-reads {input.ambiguous} --config {input.config} "
+        "--group-column {params.group} --group-columns {params.group_columns} "
+        "--normalization-denominator {params.normalization_denominator} --fragment-counts {input.counts} "
+        "--mt-summaries {input.mt_summaries} --out-exact-raw {output.exact_raw} --out-exact-mtpm {output.exact_mtpm} "
+        "--out-affected-raw {output.affected_raw} --out-affected-mtpm {output.affected_mtpm} "
+        "--out-impact-class-raw {output.impact_raw} --out-impact-class-mtpm {output.impact_mtpm} "
+        "--out-gene-pair-raw {output.gene_pair_raw} --out-gene-pair-mtpm {output.gene_pair_mtpm} "
+        "--out-per-gene-burden {output.per_gene} --out-burden {output.burden} "
+        "--out-exact-comparison {output.exact_comparison} --out-affected-comparison {output.affected_comparison} "
+        "--out-impact-class-comparison {output.impact_comparison} --out-size-tests {output.size_tests} "
+        "--out-size-bin-summary {output.size_bin_summary} --out-factorial-model-summary {output.factorial_model_summary} "
+        "--out-metadata-associations {output.metadata_assoc} --out-qc-summary {output.qc_summary}"
+
+
 rule build_matrices:
     input:
         samples=lambda wildcards: checkpoints.resolve_samples.get().output.samples,
@@ -990,6 +1233,84 @@ rule plot_results:
         "--endpoint-density-smooth-bins {params.endpoint_density_smooth_bins}"
 
 
+rule plot_quality_profile:
+    input:
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+        samples=lambda wildcards: checkpoints.resolve_samples.get().output.samples,
+        features=f"{OUTDIR}/annotations/mt_features.tsv",
+        observations=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/canonical_observations.tsv",
+        clusters=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/junction_clusters.tsv",
+        burden=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_burden.tsv",
+        exact_mtpm=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/exact_deletion_support_per_million_mt_reads.tsv",
+        affected_raw=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/affected_feature_raw_counts.tsv",
+        affected_mtpm=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/affected_feature_support_per_million_mt_reads.tsv",
+        impact_mtpm=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/feature_impact_class_support_per_million_mt_reads.tsv",
+        gene_pair_mtpm=f"{OUTDIR}/quality/profiles/{{quality_profile}}/matrices/gene_pair_support_per_million.tsv",
+        per_gene=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/per_gene_affected_burden.tsv",
+        exact_comparison=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/exact_deletion_comparison.tsv",
+    output:
+        burden=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_burden_by_sample.pdf",
+        unique=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/unique_exact_deletions_by_sample.pdf",
+        burden_factorial=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_burden_factorial_interaction.pdf",
+        unique_factorial=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/unique_exact_deletions_factorial_interaction.pdf",
+        size_unweighted=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_size_distribution_unweighted.pdf",
+        size_weighted=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_size_distribution_support_weighted.pdf",
+        size_weighted_log=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_size_distribution_support_weighted_log_y.pdf",
+        size_small=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_size_distribution_small.pdf",
+        size_medium=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_size_distribution_medium.pdf",
+        size_large=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_size_distribution_large.pdf",
+        rainfall_left=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_rainfall_left_breakpoint.pdf",
+        rainfall_right=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_rainfall_right_breakpoint.pdf",
+        rainfall_midpoint=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/deletion_rainfall_midpoint.pdf",
+        breakpoint_pair_map=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/breakpoint_pair_support_map.pdf",
+        endpoint_density=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/pooled_breakpoint_support_density.pdf",
+        endpoint_density_capped=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/pooled_breakpoint_support_density_capped.pdf",
+        affected_support=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/affected_feature_support.pdf",
+        affected_counts=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/affected_feature_counts.pdf",
+        affected_proportions=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/affected_feature_proportions.pdf",
+        impact=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/feature_impact_classes.pdf",
+        per_gene=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/per_gene_affected_burden.pdf",
+        recurrence=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/exact_deletion_recurrence.pdf",
+        exact_pca=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/exact_deletion_pca.pdf",
+        exact_mds=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/exact_deletion_bray_curtis_mds.pdf",
+        affected_pca=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/affected_feature_pca.pdf",
+        affected_mds=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/affected_feature_bray_curtis_mds.pdf",
+        gene_pair_pca=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/gene_pair_pca.pdf",
+    params:
+        group=CFG["dataset"].get("primary_group_column", ""),
+        rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
+        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 300),
+        endpoint_density_bin_size=CFG.get("plots", {}).get("endpoint_density_bin_size", 50),
+        endpoint_density_smooth_bins=CFG.get("plots", {}).get("endpoint_density_smooth_bins", 7),
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/plot_deletion_results.py --samples {input.samples} --features {input.features} "
+        "--config {input.config} --mt-length {MT_LENGTH} --all-reads {input.observations} --clusters {input.clusters} "
+        "--burden {input.burden} --exact-mtpm {input.exact_mtpm} --affected-raw {input.affected_raw} "
+        "--affected-mtpm {input.affected_mtpm} --impact-class-mtpm {input.impact_mtpm} "
+        "--gene-pair-mtpm {input.gene_pair_mtpm} --per-gene-burden {input.per_gene} "
+        "--exact-comparison {input.exact_comparison} --group-column {params.group} "
+        "--out-burden {output.burden} --out-unique-count {output.unique} "
+        "--out-burden-factorial {output.burden_factorial} --out-unique-factorial {output.unique_factorial} "
+        "--out-size-unweighted {output.size_unweighted} --out-size-weighted {output.size_weighted} "
+        "--out-size-weighted-log {output.size_weighted_log} --out-size-small {output.size_small} "
+        "--out-size-medium {output.size_medium} --out-size-large {output.size_large} "
+        "--out-rainfall-left {output.rainfall_left} --out-rainfall-right {output.rainfall_right} "
+        "--out-rainfall-midpoint {output.rainfall_midpoint} --out-breakpoint-pair-map {output.breakpoint_pair_map} "
+        "--out-endpoint-density {output.endpoint_density} --out-endpoint-density-capped {output.endpoint_density_capped} "
+        "--out-affected-support {output.affected_support} --out-affected-counts {output.affected_counts} "
+        "--out-affected-proportions {output.affected_proportions} --out-impact-class {output.impact} "
+        "--out-per-gene {output.per_gene} --out-exact-recurrence {output.recurrence} "
+        "--out-exact-pca {output.exact_pca} --out-exact-mds {output.exact_mds} "
+        "--out-affected-pca {output.affected_pca} --out-affected-mds {output.affected_mds} "
+        "--out-gene-pair-pca {output.gene_pair_pca} "
+        "--rainfall-min-support-per-million {params.rainfall_min_support_per_million} "
+        "--rainfall-max-points-per-group {params.rainfall_max_points_per_group} "
+        "--endpoint-density-bin-size {params.endpoint_density_bin_size} "
+        "--endpoint-density-smooth-bins {params.endpoint_density_smooth_bins}"
+
+
 rule make_report:
     input:
         config=DATASET_CONFIG if DATASET_CONFIG else RESOLVED_CONFIG,
@@ -1058,6 +1379,67 @@ rule make_report:
         "--known-sequence-hits {input.known_sequence_hits} "
         "--read-list-manifest {output.read_list_manifest} "
         "--plots {input.plots} --output {output.html}"
+
+
+rule make_quality_profile_report:
+    input:
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+        source_candidates=f"{OUTDIR}/quality/shared/source_candidates.tsv",
+        samples=lambda wildcards: checkpoints.resolve_samples.get().output.samples,
+        features=f"{OUTDIR}/annotations/mt_features.tsv",
+        clusters=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/junction_clusters.tsv",
+        observations=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/canonical_observations.tsv",
+        ambiguous=f"{OUTDIR}/quality/shared/ambiguous_direction_observations.tsv",
+        qc_summary=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/qc_summary.tsv",
+        burden=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_burden.tsv",
+        exact_comparison=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/exact_deletion_comparison.tsv",
+        affected_comparison=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/affected_feature_comparison.tsv",
+        impact_comparison=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/feature_impact_class_comparison.tsv",
+        size_tests=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_size_distribution_tests.tsv",
+        size_bin_summary=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_size_bin_summary.tsv",
+        factorial_model_summary=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/factorial_model_summary.tsv",
+        metadata_assoc=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_metadata_associations.tsv",
+        per_gene=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/per_gene_affected_burden.tsv",
+        known_sequence_summary=f"{OUTDIR}/analysis/known_sequence_search_summary.tsv",
+        known_sequence_hits=f"{OUTDIR}/analysis/known_sequence_search_hits.tsv",
+        plots=quality_profile_plot_inputs,
+    output:
+        html=f"{OUTDIR}/quality/profiles/{{quality_profile}}/.report/index.html",
+        read_list_manifest=f"{OUTDIR}/quality/profiles/{{quality_profile}}/.report/read_lists/manifest.tsv",
+    params:
+        title=lambda wildcards: f"{CFG['dataset'].get('title', DATASET)} - {wildcards.quality_profile.capitalize()} evidence",
+        group=CFG["dataset"].get("primary_group_column", ""),
+        results_dir=OUTDIR,
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/make_deletion_report.py --title '{params.title}' --report-profile {wildcards.quality_profile} "
+        "--run-results-dir {params.results_dir} --config {input.config} --samples {input.samples} --features {input.features} "
+        "--qc-summary {input.qc_summary} --clusters {input.clusters} --junction-reads {input.observations} "
+        "--source-candidates {input.source_candidates} "
+        "--ambiguous-reads {input.ambiguous} --burden {input.burden} --exact-comparison {input.exact_comparison} "
+        "--affected-comparison {input.affected_comparison} --impact-class-comparison {input.impact_comparison} "
+        "--size-tests {input.size_tests} --size-bin-summary {input.size_bin_summary} "
+        "--factorial-model-summary {input.factorial_model_summary} --metadata-associations {input.metadata_assoc} "
+        "--per-gene-burden {input.per_gene} --known-sequence-summary {input.known_sequence_summary} "
+        "--known-sequence-hits {input.known_sequence_hits} --read-list-manifest {output.read_list_manifest} "
+        "--plots {input.plots} --output {output.html}"
+
+
+rule make_quality_report_index:
+    input:
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+        membership=f"{OUTDIR}/quality/shared/report_profile_membership.tsv",
+        reports=expand(f"{OUTDIR}/quality/profiles/{{quality_profile}}/.report/index.html", quality_profile=QUALITY_PROFILES),
+    output:
+        html=f"{OUTDIR}/quality/report/index.html",
+    params:
+        title=CFG["dataset"].get("title", DATASET),
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/make_quality_report_index.py --title '{params.title}' --config {input.config} "
+        "--membership {input.membership} --reports {input.reports} --output {output.html}"
 
 
 rule make_deliverables:

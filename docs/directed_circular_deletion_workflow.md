@@ -18,8 +18,10 @@ evidence policies.
 
 ## Result Schema
 
-Alignment-directed, mate-aware results use schema
-`2.1-alignment-directed-arcs-mate-aware`.
+The mitochondrial remap caller uses schema
+`2.1-alignment-directed-arcs-mate-aware`. The canonical quality evidence layer uses
+schema `3.0-quality-evidence-multi-caller` for its shared observation and cluster
+tables. Both schemas use the same directed circular coordinate convention.
 
 Exact-deletion identifiers encode the directed left breakpoint, right breakpoint,
 and deleted size under the coordinate convention defined below.
@@ -109,7 +111,7 @@ configuration and report:
 - eligibility of secondary and supplementary alignments;
 - expected transcript-junction filtering.
 
-The established default evaluates all compatible segment pairs within one physical
+The default evaluates all compatible segment pairs within one physical
 read or mate. Supplementary records and SA-tagged primary or secondary records are
 eligible by default; ordinary single-segment records cannot form a split chain and
 are not retained by the caller.
@@ -127,6 +129,42 @@ Every accepted read-level row retains enough provenance to audit the call:
 - rotation name and offset;
 - directed and complementary interval properties.
 
+## Evidence Sources And Canonical Observations
+
+Minimap2 mitochondrial-remap split alignments are an evidence source for every
+configured read type. Short-read RNA datasets can additionally enable STAR
+mitochondrial-to-mitochondrial chimeric records with
+`quality.short_read_rna_dual_caller.enabled`.
+
+Each caller applies its own alignment and query-geometry filters before accepted
+rows enter one canonical observation table. STAR records are expressed directly in
+the configured mitochondrial coordinate system. Minimap2 records are converted from
+normal or rotated mitochondrial references before consolidation.
+
+A canonical observation represents one physical read for Nanopore or single-end
+Illumina and one sequenced fragment for paired-end Illumina. The same sample,
+physical observation, and directed breakpoint model detected by multiple callers or
+rotations is counted once. Caller and rotation agreement are retained as provenance
+rather than additional molecule support.
+
+Canonical observations record, where available:
+
+- caller-specific and combined evidence status;
+- read or fragment identity and library layout;
+- strand, CIGARs, query spans, anchors, aligned lengths, clipping, gap, overlap,
+  query coverage, and distance from the junction boundary to a read end;
+- segment MAPQ, alignment score, edit distance, and primary, secondary, or
+  supplementary status;
+- raw caller coordinates, canonical coordinates, and alignment-pattern identity;
+- rotation support, direction ambiguity, transcript compatibility, nuclear
+  competition status, and quality flags;
+- paired-end collapse and mate-context availability.
+
+Unavailable caller metrics are empty or carry an explicit availability status; they
+are not interpreted as zero. Mate-placement fields use
+`not_available_from_retained_intermediates` when the retained alignment products do
+not contain the records required to calculate them.
+
 ## Canonical Deletion Objects
 
 A canonical exact-deletion object includes at least:
@@ -140,7 +178,14 @@ A canonical exact-deletion object includes at least:
 - affected, fully removed, and partially overlapped features;
 - flanking or nearest features;
 - size class and configured known-deletion match;
-- sample, group, and rotation metadata.
+- sample, group, and rotation metadata;
+- evidence tier and quality flags;
+- STAR, minimap2, both-caller, and combined distinct-observation support;
+- within-sample replication, supporting-sample count, alignment-pattern diversity,
+  breakpoint dispersion, anchor, error, coverage, chain-complexity, and
+  multiple-hypothesis summaries;
+- local remap reference-spanning support when minimap2 evidence provides a
+  like-for-like split-support numerator.
 
 Exact deletions remain coordinate-level events. Affected-feature categories are
 derived labels based on overlap with the directed deleted interval and must not
@@ -184,6 +229,34 @@ Reports distinguish:
 - exact coordinate deletions;
 - affected-feature categories.
 
+Every canonical cluster receives one evidence-management tier:
+
+- `strong`: at least the configured strong observation count plus within-sample
+  replication or cross-caller corroboration of a physical observation;
+- `supported`: at least the configured supported observation count without the
+  additional strong-evidence condition;
+- `review`: fewer than the configured supported observation count;
+- `rejected`: a configured expected-transcript junction or unresolved reciprocal
+  direction ambiguity.
+
+These tiers describe evidence handling, not biological confirmation. The default
+report profiles are cumulative views over stable exact-deletion IDs:
+
+- `stringent`: strong;
+- `standard`: strong and supported;
+- `exploratory`: strong, supported, and review.
+
+Each profile rebuilds its own tables, matrices, normalization, statistics,
+ordinations, and plots. PCA and MDS axes are profile-specific. The report index at
+`results/<dataset>/quality/report/index.html` links the profile reports and records
+their retained cluster and observation counts. Shared canonical tables are under
+`results/<dataset>/quality/shared/`, and profile outputs are under
+`results/<dataset>/quality/profiles/<profile>/`.
+
+Short-read RNA reports include a gene-pair matrix and PCA only when the STAR evidence
+stream is enabled. Gene-pair labels annotate or aggregate exact coordinate events;
+they do not replace exact-deletion identity or create additional candidates.
+
 ## Assay-Specific Interpretation
 
 ### Nanopore
@@ -217,8 +290,8 @@ interpretation is limited rather than selecting assumptions heuristically.
 
 ## Validation Requirements
 
-Changes to circular coordinate handling, query ordering, mate identity, clustering,
-or deletion IDs require targeted tests covering:
+Targeted tests for circular coordinate handling, query ordering, mate identity,
+clustering, and deletion IDs cover:
 
 - plus- and minus-strand stored BAM order;
 - non-wrapping and origin-wrapping directed arcs;
@@ -237,8 +310,8 @@ records with synthetic `L|R`, complementary `R|L`, and wild-type circular-juncti
 templates. Doubled-reference mapping is supplementary because repeated sequence can
 introduce equivalent placements.
 
-After changes affecting tables, matrices, normalization, grouping, plotting, or
-reports, inspect rendered outputs and confirm that biological columns are used,
+Rendered-output validation for tables, matrices, normalization, grouping, plotting,
+and reports confirms that biological columns are used,
 labels and legends are readable, empty panels state the real limitation, and report
 text matches the resolved configuration.
 
@@ -268,3 +341,9 @@ The workflow satisfies this specification when:
 5. Rotation conversion and cross-rotation deduplication preserve direction.
 6. Tables and reports expose the assumptions and provenance needed to audit a call.
 7. Behavior remains configuration-driven across Nanopore, Illumina, RNA, and DNA.
+8. Cross-caller detection of one physical observation increases provenance without
+   increasing molecule support.
+9. Stable exact-deletion IDs are shared across report profiles, while profile
+   matrices and ordinations contain only the retained observations.
+10. Report text and empty panels follow resolved assay, caller, layout, and metric
+    availability settings.

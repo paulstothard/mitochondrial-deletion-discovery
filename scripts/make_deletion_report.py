@@ -140,7 +140,7 @@ def read_table(path: str) -> pd.DataFrame:
     if not path or not Path(path).exists():
         return pd.DataFrame()
     try:
-        return pd.read_csv(path, sep="\t")
+        return pd.read_csv(path, sep="\t", low_memory=False)
     except pd.errors.EmptyDataError:
         return pd.DataFrame()
 
@@ -1394,15 +1394,48 @@ def evidence_streams_section(
     read_list_dir: Path,
     overlap: pd.DataFrame,
     overlap_html_cells: dict[tuple[int, str], str],
+    config: dict | None = None,
+    report_profile: str = "",
 ) -> str:
-    rows = [
-        {
-            "approach": "Main remapping-based deletion caller",
-            "role": "Primary discovery and reporting stream",
-            "input reads": "Reads retained by the configured first-pass mitochondrial-evidence selection mode",
-            "question answered": "Which reads support deletion-like split alignments after mitochondrial remapping, circular coordinate consolidation, filtering, and annotation?",
-            "main outputs": "Exact deletion calls, affected-feature categories, size distributions, recurrence plots, group comparisons, and normalized burden tables",
-        },
+    dual_caller = bool((config or {}).get("quality", {}).get("short_read_rna_dual_caller", {}).get("enabled", False)) and bool(report_profile)
+    rows = []
+    if dual_caller:
+        rows.extend(
+            [
+                {
+                    "approach": "Combined canonical deletion evidence",
+                    "role": "Primary profile result stream",
+                    "input reads": "Unique physical observations retained by the selected quality profile",
+                    "question answered": "Which circularly canonicalized deletion models pass this profile after cross-caller deduplication?",
+                    "main outputs": "Exact deletions, caller-specific and combined support, gene-pair summaries, plots, matrices, and group comparisons",
+                },
+                {
+                    "approach": "STAR chimeric alignment evidence",
+                    "role": "Short-read RNA evidence source",
+                    "input reads": "All reads aligned competitively to the full nuclear-plus-mitochondrial reference",
+                    "question answered": "Which reads contain mitochondrial-to-mitochondrial chimeric alignments under the configured STAR geometry and quality filters?",
+                    "main outputs": "STAR-supported canonical observations; full-genome nuclear competition remains available for quality annotation",
+                },
+                {
+                    "approach": "Minimap2 mitochondrial remap evidence",
+                    "role": "Targeted circular-remap evidence source",
+                    "input reads": "Reads retained by the configured first-pass mitochondrial-evidence selection mode",
+                    "question answered": "Which retained reads support deletion-like splits against normal and rotated mitochondrial references?",
+                    "main outputs": "Minimap2-supported canonical observations and local breakpoint reference support",
+                },
+            ]
+        )
+    else:
+        rows.append(
+            {
+                "approach": "Main remapping-based deletion caller",
+                "role": "Primary discovery and reporting stream",
+                "input reads": "Reads retained by the configured first-pass mitochondrial-evidence selection mode",
+                "question answered": "Which reads support deletion-like split alignments after mitochondrial remapping, circular coordinate consolidation, filtering, and annotation?",
+                "main outputs": "Exact deletion calls, affected-feature categories, size distributions, recurrence plots, group comparisons, and normalized burden tables",
+            }
+        )
+    rows.extend([
         {
             "approach": "Configured literal sequence search",
             "role": "Supplementary targeted check",
@@ -1410,7 +1443,7 @@ def evidence_streams_section(
             "question answered": "Do reads contain configured breakpoint-spanning motifs for named deletions?",
             "main outputs": "Read counts for configured sequence motifs only; this does not discover unconfigured deletions",
         },
-    ]
+    ])
     body = table_html(pd.DataFrame(rows), rows=10)
 
     if not known_sequence_summary.empty:
@@ -1447,8 +1480,79 @@ def evidence_streams_section(
             )
     return section(
         "How The Evidence Streams Differ",
-        "This report has one main deletion-calling stream and one supplementary targeted sequence-search stream. They use related input reads but answer different questions, so their counts are expected to differ.",
+        "This report keeps caller provenance and supplementary targeted sequence checks separate. When multiple callers support the same physical read and canonical deletion, combined support counts that observation once.",
         body,
+    )
+
+
+def quality_profile_section(config: dict, report_profile: str, clusters: pd.DataFrame, observations: pd.DataFrame) -> str:
+    if not report_profile:
+        return ""
+    profiles = config.get("quality", {}).get("report_profiles", {}) or {}
+    profile_config = profiles.get(report_profile, {})
+    tiers = profile_config.get("include_tiers", []) if isinstance(profile_config, dict) else profile_config
+    criteria = pd.DataFrame(
+        [
+            {"Field": "Report profile", "Value": report_profile},
+            {"Field": "Included quality tiers", "Value": ", ".join(str(value) for value in tiers)},
+            {"Field": "Exact deletion clusters retained", "Value": len(clusters)},
+            {"Field": "Distinct physical observations retained", "Value": len(observations)},
+            {"Field": "PCA behavior", "Value": "Matrices and PCA are rebuilt from this profile only; axes are not assumed equivalent across profiles"},
+        ]
+    )
+    source_rows = []
+    if not clusters.empty and "evidence_status" in clusters.columns:
+        counts = clusters["evidence_status"].fillna("unknown").astype(str).value_counts()
+        source_rows = [{"Evidence status": name, "Deletion clusters": int(value)} for name, value in counts.items()]
+    return section(
+        "Evidence Quality Profile",
+        "This is one filtered view of shared canonical evidence. Stable deletion IDs and physical observations are not duplicated between report profiles.",
+        table_html(criteria, rows=20)
+        + ("<h3>Caller Evidence Composition</h3>" + table_html(pd.DataFrame(source_rows), rows=20) if source_rows else ""),
+    )
+
+
+def method_concordance_section(
+    config: dict,
+    report_profile: str,
+    source_candidates: pd.DataFrame,
+    clusters: pd.DataFrame,
+    observations: pd.DataFrame,
+) -> str:
+    if not report_profile:
+        return ""
+    pieces = []
+    if not observations.empty and "evidence_sources" in observations.columns:
+        counts = observations["evidence_sources"].fillna("unknown").astype(str).value_counts().reset_index()
+        counts.columns = ["retained evidence source(s)", "distinct physical observations"]
+        pieces.append("<h3>Retained Observation Evidence</h3>" + table_html(counts, rows=20))
+    if not clusters.empty and "evidence_status" in clusters.columns:
+        counts = clusters["evidence_status"].fillna("unknown").astype(str).value_counts().reset_index()
+        counts.columns = ["cluster evidence status", "exact deletion clusters"]
+        pieces.append("<h3>Retained Cluster Evidence</h3>" + table_html(counts, rows=20))
+    if not source_candidates.empty and {"evidence_source", "filter_status", "filter_reason"}.issubset(source_candidates.columns):
+        source = source_candidates.copy()
+        source["filter_reason"] = source["filter_reason"].fillna("").replace("", "passed source filters")
+        disposition = (
+            source.groupby(["evidence_source", "filter_status", "filter_reason"], dropna=False)
+            .size()
+            .reset_index(name="source records")
+            .sort_values(["evidence_source", "filter_status", "source records"], ascending=[True, True, False])
+        )
+        pieces.append("<h3>Source-Specific Candidate Disposition</h3>" + table_html(disposition, rows=300))
+    dual = bool(config.get("quality", {}).get("short_read_rna_dual_caller", {}).get("enabled", False))
+    if dual:
+        pieces.append(
+            "<div class=\"notice\"><strong>STAR evidence boundary.</strong> "
+            "The workflow parses mitochondrial-to-mitochondrial records from STAR Chimeric.out.junction, "
+            "requires the configured query geometry and anchors, and by default requires distinct annotated mitochondrial gene anchors. "
+            "Same-gene alignments, substantially overlapping gene anchors, configured expected transcript pairs, and configured size failures are excluded. "
+            "This is direct STAR chimeric-record processing; STAR-Fusion is not run. Gene-pair labels are an RNA fusion-context aggregation and do not define exact deletion identity.</div>"
+        )
+    return section(
+        "Caller Concordance And Source Filters",
+        "Caller agreement is evidence provenance, not an additional molecule. A physical read or paired-end fragment supporting the same canonical deletion through more than one caller is counted once in combined support.",
+        "".join(pieces),
     )
 
 
@@ -1495,17 +1599,29 @@ def sequence_remap_overlap_section(overlap: pd.DataFrame, html_cells: dict[tuple
     )
 
 
-def experimental_design_section(samples: pd.DataFrame, burden: pd.DataFrame, group_col: str) -> str:
+def experimental_design_section(
+    samples: pd.DataFrame,
+    burden: pd.DataFrame,
+    group_col: str,
+    config: dict | None = None,
+    report_profile: str = "",
+) -> str:
     if samples.empty:
         return ""
     pieces = []
     layouts = sorted(samples.get("layout", pd.Series(dtype=str)).dropna().astype(str).unique())
     if layouts:
         note = "Read layout: " + ", ".join(layouts) + ". "
+        dual_caller = bool((config or {}).get("quality", {}).get("short_read_rna_dual_caller", {}).get("enabled", False)) and bool(report_profile)
+        evidence_path = (
+            "from individual STAR chimeric or mitochondrial-remap alignments"
+            if dual_caller
+            else "from individual split-read alignments after mitochondrial remapping"
+        )
         if layouts == ["single"]:
-            note += "Deletion evidence is evaluated from individual split-read alignments after mitochondrial remapping; mate-pair consistency is unavailable."
+            note += f"Deletion evidence is evaluated {evidence_path}; mate-pair consistency is unavailable."
         elif "paired" in layouts:
-            note += "Deletion evidence is evaluated from individual mate alignments after mitochondrial remapping. Mates remain separate when split-alignment chains are constructed and are not joined to form a deletion call."
+            note += f"Deletion evidence is evaluated {evidence_path}. Mates are not joined across reads to create a deletion call, and R1/R2 identifiers are collapsed to one fragment-level observation when they support the same canonical event. Mate-placement context is marked unavailable when the required alignment records are not present in the retained intermediates."
         pieces.append(f'<div class="notice">{html.escape(note)}</div>')
     if {"age", "treatment"}.issubset(samples.columns):
         counts = samples.groupby(["age", "treatment"], dropna=False).size().reset_index(name="sample_count")
@@ -1573,9 +1689,16 @@ def circular_validation_section(config: dict, clusters: pd.DataFrame) -> str:
             "interpretation": "The test suite checks strand-normalized direction, rotated-coordinate conversion, separate reciprocal models, origin wrapping, and duplicate rotation support from the same read.",
         }
     )
+    dual_caller = bool((config.get("quality", {}) or {}).get("short_read_rna_dual_caller", {}).get("enabled", False))
+    source_text = (
+        "Minimap2 mitochondrial-remap observations use normal and rotated references; STAR chimeric observations are converted directly from their full-genome mitochondrial coordinates. "
+        if dual_caller
+        else "The mitochondrial remap step uses normal and rotated references. "
+    )
     return section(
         "Circular Coordinate Checks",
-        "The mitochondrial remap step uses normal and rotated references, then converts calls back to one circular coordinate system while preserving directed retained adjacency. These checks summarize the circular-coordinate behavior visible in this run.",
+        source_text
+        + "All observations are represented in one circular coordinate system while preserving directed retained adjacency. These checks summarize the circular-coordinate behavior visible in this run.",
         table_html(pd.DataFrame(rows), rows=20),
     )
 
@@ -1608,6 +1731,14 @@ def reference_support_explanation(clusters: pd.DataFrame) -> str:
     required = {"left_reference_spanning_reads", "right_reference_spanning_reads", "reference_spanning_reads_min", "local_split_support_fraction"}
     if clusters.empty or not required.issubset(clusters.columns):
         return ""
+    evidence_status = clusters.get("evidence_status", pd.Series(dtype=str)).fillna("").astype(str)
+    evidence_sources = clusters.get("evidence_sources", pd.Series(dtype=str)).fillna("").astype(str)
+    has_star_evidence = evidence_status.str.contains("star", case=False).any() or evidence_sources.str.contains("star", case=False).any()
+    method_meaning = "How the local reference-spanning denominator was obtained. Remap-supported calls use primary-alignment depth and the maximum count across normal and rotated mitochondrial remaps."
+    star_unavailable = ""
+    if has_star_evidence:
+        method_meaning += " STAR-only calls are marked unavailable because they have no comparable minimap2 split-support numerator."
+        star_unavailable = "STAR-only exact deletions are marked unavailable for this metric because a STAR chimeric numerator and a minimap2 remap denominator would not be a like-for-like comparison. "
     definitions = pd.DataFrame(
         [
             {
@@ -1628,15 +1759,16 @@ def reference_support_explanation(clusters: pd.DataFrame) -> str:
             },
             {
                 "column": "reference_support_method",
-                "meaning": "How the local reference-spanning denominator was counted. The default method uses primary-alignment depth and takes the maximum count across normal and rotated mitochondrial remaps.",
+                "meaning": method_meaning,
             },
         ]
     )
     return (
         "<h3>Local Breakpoint Reference Support</h3>"
-        "<p>The exact-deletion table includes local reference-spanning support at each breakpoint. "
-        "These columns compare deletion-supporting split reads with primary alignments that span the undeleted reference sequence near each breakpoint in the same mitochondrial remap stream. "
+        "<p>For exact deletions with minimap2 remap evidence, the table includes local reference-spanning support at each breakpoint. "
+        "These columns compare minimap2 deletion-supporting split reads with primary alignments that span the undeleted reference sequence near each breakpoint in the same mitochondrial remap stream. "
         "For each breakpoint, the workflow counts local spanning depth in the normal and rotated mitochondrial remaps and uses the larger value, rather than summing the two rotations. "
+        f"{star_unavailable}"
         "This is a breakpoint-local reference-support denominator, separate from the configured per-million normalization denominator used in the main plots. "
         "The metric is most interpretable when reads are long enough and coverage exists at both breakpoint neighborhoods. For RNA data, it should not be interpreted as mtDNA heteroplasmy; for DNA data, it remains a local breakpoint-support summary unless the dataset and coverage assumptions justify a heteroplasmy interpretation.</p>"
         + table_html(definitions, rows=10)
@@ -1788,12 +1920,15 @@ def optional_result_table_panel(title: str, description: str, df: pd.DataFrame, 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--title", required=True)
+    parser.add_argument("--report-profile", default="")
+    parser.add_argument("--run-results-dir", default="")
     parser.add_argument("--config", required=True)
     parser.add_argument("--samples", required=True)
     parser.add_argument("--features", required=True)
     parser.add_argument("--qc-summary", required=True)
     parser.add_argument("--clusters", required=True)
     parser.add_argument("--junction-reads", required=True)
+    parser.add_argument("--source-candidates", default="")
     parser.add_argument("--ambiguous-reads", required=True)
     parser.add_argument("--burden", required=True)
     parser.add_argument("--exact-comparison", required=True)
@@ -1817,6 +1952,7 @@ def main() -> None:
     qc = read_table(args.qc_summary)
     clusters = read_table(args.clusters)
     junction_reads = read_table(args.junction_reads)
+    source_candidates = read_table(args.source_candidates) if args.source_candidates else pd.DataFrame()
     ambiguous_reads = read_table(args.ambiguous_reads)
     burden = read_table(args.burden)
     exact_comp = read_table(args.exact_comparison)
@@ -1841,7 +1977,7 @@ def main() -> None:
     groups = ", ".join(sorted(samples[group_col].dropna().astype(str).unique())) if group_col in samples.columns else ""
     compact_samples = compact_sample_table(samples, group_columns)
     group_counts = group_count_table(samples, group_col)
-    results_dir = Path(args.output).resolve().parent.parent
+    results_dir = Path(args.run_results_dir).resolve() if args.run_results_dir else Path(args.output).resolve().parent.parent
     read_prep = read_preparation_table(samples, results_dir)
     sample_note = ""
     if group_col in samples.columns and not group_counts.empty and group_counts["sample_count"].min() < 2:
@@ -1877,6 +2013,7 @@ def main() -> None:
         "exact_deletion_bray_curtis_mds.pdf": ("Exact Deletion Bray-Curtis MDS", "Distance-based sample ordination using exact-deletion profiles. Static labels and centroids are omitted so crowded datasets remain readable."),
         "affected_feature_pca.pdf": ("Affected-Feature PCA", "Sample ordination after exact deletions are summed to affected-feature categories. Static labels and centroids are omitted so crowded datasets remain readable."),
         "affected_feature_bray_curtis_mds.pdf": ("Affected-Feature Bray-Curtis MDS", "Distance-based sample ordination using affected-feature profiles. Static labels and centroids are omitted so crowded datasets remain readable."),
+        "gene_pair_pca.pdf": ("Mitochondrial Gene-Pair PCA", "Short-read RNA sample ordination after retained canonical observations are aggregated by their STAR annotated mitochondrial gene pair when available, with breakpoint-flanking features used for other evidence sources. Gene-pair aggregation does not change exact deletion identity. The matrix is rebuilt for this report profile, so axes are not assumed equivalent to another profile."),
     }
     plot_lookup = {Path(path).name: path for path in args.plots}
     plots = {plot_lookup[name]: meta for name, meta in plot_meta.items() if name in plot_lookup}
@@ -1910,6 +2047,9 @@ def main() -> None:
         "affected_feature_pca.pdf",
         "affected_feature_bray_curtis_mds.pdf",
     ]
+    dual_caller = bool((config.get("quality", {}) or {}).get("short_read_rna_dual_caller", {}).get("enabled", False))
+    if dual_caller and "gene_pair_pca.pdf" in plot_lookup:
+        primary_plot_names.insert(2, "gene_pair_pca.pdf")
     primary_plots = select_plots(plots, primary_plot_names)
     secondary_plots = select_plots(plots, secondary_plot_names)
 
@@ -2054,8 +2194,8 @@ def main() -> None:
         [
             card("Samples", n_samples, "Samples included after metadata resolution."),
             card("Groups", groups or "not configured", "Primary comparison labels from the dataset metadata."),
-            card("Remap exact deletions", n_deletions, "Alignment-directed circular-remap deletion intervals passing clustering and support filters."),
-            card("Remap supporting reads", total_support, "Deduplicated split reads assigned to reportable remap exact deletions."),
+            card("Exact deletions", n_deletions, "Alignment-directed circular deletion intervals retained by this report view."),
+            card("Distinct supporting observations", total_support, "Unique physical read or fragment observations assigned to retained exact deletions."),
         ]
     )
 
@@ -2069,7 +2209,7 @@ def main() -> None:
 <body>
   <header>
     <h1>{html.escape(args.title)}</h1>
-    <p>Workflow report for mitochondrial deletion evidence in sequencing data. The main results are circular-remap deletion calls; configured literal sequence searches are supplementary checks for named breakpoint motifs.</p>
+    <p>Workflow report for coordinate-focused mitochondrial deletion evidence in sequencing data. The report identifies its evidence sources and quality profile; configured literal sequence searches remain supplementary checks for named breakpoint motifs.</p>
   </header>
   <nav>
     <a href="#samples">Samples</a>
@@ -2079,6 +2219,8 @@ def main() -> None:
     <a href="#method">Method</a>
     <a href="#assumptions">Assumptions</a>
     <a href="#evidence">Evidence Streams</a>
+    <a href="#quality-profile">Quality Profile</a>
+    <a href="#caller-concordance">Caller Concordance</a>
     <a href="#circular-checks">Circular Checks</a>
     <a href="#qc">QC</a>
     <a href="#remap-stream">Deletion Results</a>
@@ -2088,14 +2230,16 @@ def main() -> None:
     <div class="metric-grid">{summary_cards}</div>
     <section id="samples"><div class="section-heading"><h2>Sample Metadata</h2><p>These labels define the group and continuous-variable comparisons in the report. This compact table hides long FASTQ path columns so every included sample is visible; full input paths remain in the delivered configuration and generated metadata files.</p></div>{sample_note}<h3>Included Samples</h3>{table_html(compact_samples, 300)}<h3>Group Counts</h3>{table_html(group_counts, 100)}</section>
     <section id="read-prep"><div class="section-heading"><h2>Read Preparation</h2><p>This table reports the observed read layout, read cycles, mean read length before and after fastp, and whether the workflow ran trimming for each sample. Values are read from the per-sample QC files generated by this run.</p></div>{table_html(read_prep, None)}</section>
-    <div id="design">{experimental_design_section(samples, burden, group_col)}</div>
+    <div id="design">{experimental_design_section(samples, burden, group_col, config, args.report_profile)}</div>
     <div id="reference">{reference_section(config, features)}</div>
     <div id="method">{method_section(config, burden)}</div>
     <div id="assumptions">{assumptions_section(config, clusters, ambiguous_reads, qc)}</div>
-    <div id="evidence">{evidence_streams_section(qc, known_sequence_summary, known_sequence_hits, read_list_dir, overlap_table, overlap_html_cells)}</div>
+    <div id="evidence">{evidence_streams_section(qc, known_sequence_summary, known_sequence_hits, read_list_dir, overlap_table, overlap_html_cells, config, args.report_profile)}</div>
+    <div id="quality-profile">{quality_profile_section(config, args.report_profile, clusters, junction_reads)}</div>
+    <div id="caller-concordance">{method_concordance_section(config, args.report_profile, source_candidates, clusters, junction_reads)}</div>
     <div id="circular-checks">{circular_validation_section(config, clusters)}</div>
     <section id="qc"><div class="section-heading"><h2>Processing QC</h2><p>This table summarizes the first-pass read selection, mitochondrial remapping, and deletion-call denominators used by the report.</p></div>{table_html(qc, 300)}</section>
-    {stream_result_section("remap-stream", "Circular-Remap Deletion Results", f"These results start from the retained mitochondrial-evidence reads, remap them to normal and rotated mitochondrial references, and normalize support {normalization_phrase(burden, config)}. They are coordinate-focused deletion-like evidence; review the earlier Analysis Assumptions And Limitations section before biological interpretation.", config, plot_sections(primary_plots), plot_sections(secondary_plots), clusters, burden, exact_comp, affected_comp, impact_comp, size_tests, size_bin_summary, factorial_model_summary, metadata_assoc, per_gene, junction_reads, read_list_dir, read_list_manifest)}
+    {stream_result_section("remap-stream", "Canonical Deletion Evidence Results", f"These results contain the canonical observations retained by the {args.report_profile or 'configured'} report profile and normalize support {normalization_phrase(burden, config)}. Caller-specific support remains visible in the exact-deletion table. These are coordinate-focused deletion-like evidence; review the earlier Analysis Assumptions And Limitations section before biological interpretation.", config, plot_sections(primary_plots), plot_sections(secondary_plots), clusters, burden, exact_comp, affected_comp, impact_comp, size_tests, size_bin_summary, factorial_model_summary, metadata_assoc, per_gene, junction_reads, read_list_dir, read_list_manifest)}
   </main>
   <script>{js}</script>
 </body>
