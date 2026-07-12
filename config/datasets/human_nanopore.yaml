@@ -36,6 +36,7 @@ mapping:
   first_pass_aligner: minimap2
   first_pass_minimap2_preset: splice
   first_pass_minimap2_threads: 8
+  first_pass_minimap2_index_extra: -k15 -w5
   first_pass_minimap2_extra: ""
   whole_genome_min_mt_mapq: 0
   whole_genome_min_mt_aligned_fraction: 0.5

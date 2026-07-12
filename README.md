@@ -181,6 +181,7 @@ mapping:
   first_pass_read_selection: whole_genome_mt_best
   first_pass_aligner: minimap2
   first_pass_minimap2_preset: splice
+  first_pass_minimap2_index_extra: -k15 -w5
   keep_ambiguous_mt_nuclear_reads: true
 
 mt_realign:

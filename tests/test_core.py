@@ -5,6 +5,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -153,6 +154,13 @@ class CoreTests(unittest.TestCase):
         self.assertIn("    output:\n        samples=RESOLVED_SAMPLES,\n    params:", checkpoint)
         self.assertNotIn("\n        config=RESOLVED_CONFIG,", checkpoint)
         self.assertNotIn("\n        run_table=f", checkpoint)
+
+    def test_nanopore_splice_preset_configures_index_seed_parameters(self):
+        config_path = Path(__file__).resolve().parents[1] / "config" / "datasets" / "human_nanopore.yaml"
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(config["mapping"]["first_pass_minimap2_preset"], "splice")
+        self.assertEqual(config["mapping"]["first_pass_minimap2_index_extra"], "-k15 -w5")
 
     def test_value_columns_excludes_normalization_denominators(self):
         matrix = pd.DataFrame(
