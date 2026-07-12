@@ -150,7 +150,9 @@ Future improvements to consider:
 `mt_realign.minimap2_index_extra` is for index-sensitive minimap2 settings such
 as `-k` and `-w`. Put those settings there so the `.mmi` index is built with the
 intended seed parameters. Use `mt_realign.minimap2_extra` for mapping-time
-options that do not affect index construction.
+options that do not affect index construction. Minimap2 indexes are named from
+their preset and index-sensitive settings, so datasets with incompatible seed
+profiles cannot silently reuse the same whole-genome or mitochondrial index.
 
 ## Mapper Choices And Read Types
 

@@ -46,6 +46,7 @@ mt_realign:
   input_strategy: whole_genome_mt_best
   minimap2_preset: sr
   minimap2_threads: 8
+  minimap2_index_extra: -k21 -w11
   minimap2_extra: ""
   minimap2_min_mapq: 0
   min_segment_aligned_fraction: 0.15

@@ -1,5 +1,6 @@
 import csv
 import os
+import re
 from copy import deepcopy
 from pathlib import Path
 
@@ -35,6 +36,23 @@ WORKDIR = CFG["project"]["work_dir"]
 REF = CFG["references"][SPECIES]
 MT_LENGTH = int(REF["mt_length"])
 MT_NAMES = ",".join(REF["mt_contig_names"])
+
+
+def minimap2_index_tag(preset, extra):
+    value = f"{preset}_{extra}".strip().lower()
+    tag = re.sub(r"[^a-z0-9]+", "_", value).strip("_")
+    return tag or "default"
+
+
+FIRST_PASS_MINIMAP2_PRESET = CFG["mapping"].get("first_pass_minimap2_preset", "sr")
+FIRST_PASS_MINIMAP2_INDEX_EXTRA = CFG["mapping"].get("first_pass_minimap2_index_extra", "")
+FIRST_PASS_MINIMAP2_INDEX_TAG = minimap2_index_tag(
+    FIRST_PASS_MINIMAP2_PRESET,
+    FIRST_PASS_MINIMAP2_INDEX_EXTRA,
+)
+MT_MINIMAP2_PRESET = CFG["mt_realign"].get("minimap2_preset", "sr")
+MT_MINIMAP2_INDEX_EXTRA = CFG["mt_realign"].get("minimap2_index_extra", "")
+MT_MINIMAP2_INDEX_TAG = minimap2_index_tag(MT_MINIMAP2_PRESET, MT_MINIMAP2_INDEX_EXTRA)
 RESOLVED_SAMPLES = f"metadata/generated/{DATASET}.samples.tsv"
 RESOLVED_CONFIG = f"{OUTDIR}/config/resolved_config.yaml"
 START_FROM = str(
@@ -378,45 +396,48 @@ rule index_nuclear_minimap2:
     input:
         fasta=f"{WORKDIR}/references/{SPECIES}/nuclear.fa",
     output:
-        mmi=f"{WORKDIR}/indexes/{SPECIES}/minimap2_nuclear.mmi",
+        mmi=f"{WORKDIR}/indexes/{SPECIES}/minimap2_nuclear_{FIRST_PASS_MINIMAP2_INDEX_TAG}.mmi",
     threads:
         2
     params:
-        extra=CFG["mapping"].get("first_pass_minimap2_index_extra", ""),
+        preset=FIRST_PASS_MINIMAP2_PRESET,
+        extra=FIRST_PASS_MINIMAP2_INDEX_EXTRA,
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:
-        "mkdir -p $(dirname {output.mmi}) && minimap2 {params.extra} -d {output.mmi} {input.fasta}"
+        "mkdir -p $(dirname {output.mmi}) && minimap2 -x {params.preset} {params.extra} -d {output.mmi} {input.fasta}"
 
 
 rule index_full_minimap2:
     input:
         fasta=f"{WORKDIR}/references/{SPECIES}/genome.fa",
     output:
-        mmi=f"{WORKDIR}/indexes/{SPECIES}/minimap2_full.mmi",
+        mmi=f"{WORKDIR}/indexes/{SPECIES}/minimap2_full_{FIRST_PASS_MINIMAP2_INDEX_TAG}.mmi",
     threads:
         2
     params:
-        extra=CFG["mapping"].get("first_pass_minimap2_index_extra", ""),
+        preset=FIRST_PASS_MINIMAP2_PRESET,
+        extra=FIRST_PASS_MINIMAP2_INDEX_EXTRA,
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:
-        "mkdir -p $(dirname {output.mmi}) && minimap2 {params.extra} -d {output.mmi} {input.fasta}"
+        "mkdir -p $(dirname {output.mmi}) && minimap2 -x {params.preset} {params.extra} -d {output.mmi} {input.fasta}"
 
 
 rule index_rotated_mt:
     input:
         fasta=f"{WORKDIR}/references/{SPECIES}/mt.{{rotation}}.fa",
     output:
-        mmi=f"{WORKDIR}/indexes/{SPECIES}/minimap2_mt_{{rotation}}.mmi",
+        mmi=f"{WORKDIR}/indexes/{SPECIES}/minimap2_mt_{MT_MINIMAP2_INDEX_TAG}_{{rotation}}.mmi",
     threads:
         2
     params:
-        extra=CFG["mt_realign"].get("minimap2_index_extra", ""),
+        preset=MT_MINIMAP2_PRESET,
+        extra=MT_MINIMAP2_INDEX_EXTRA,
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:
-        "mkdir -p $(dirname {output.mmi}) && minimap2 {params.extra} -d {output.mmi} {input.fasta}"
+        "mkdir -p $(dirname {output.mmi}) && minimap2 -x {params.preset} {params.extra} -d {output.mmi} {input.fasta}"
 
 
 rule prepare_reads:
@@ -654,7 +675,7 @@ rule select_nuclear_unmapped_star:
 
 rule select_nuclear_unmapped_minimap2:
     input:
-        idx=f"{WORKDIR}/indexes/{SPECIES}/minimap2_nuclear.mmi",
+        idx=f"{WORKDIR}/indexes/{SPECIES}/minimap2_nuclear_{FIRST_PASS_MINIMAP2_INDEX_TAG}.mmi",
         r1=f"{OUTDIR}/trimmed/{{sample}}_R1.fastq.gz",
         r2=f"{OUTDIR}/trimmed/{{sample}}_R2.fastq.gz",
     output:
@@ -682,7 +703,7 @@ rule select_nuclear_unmapped_minimap2:
 
 rule select_whole_genome_mt_minimap2:
     input:
-        idx=f"{WORKDIR}/indexes/{SPECIES}/minimap2_full.mmi",
+        idx=f"{WORKDIR}/indexes/{SPECIES}/minimap2_full_{FIRST_PASS_MINIMAP2_INDEX_TAG}.mmi",
         r1=f"{OUTDIR}/trimmed/{{sample}}_R1.fastq.gz",
         r2=f"{OUTDIR}/trimmed/{{sample}}_R2.fastq.gz",
     output:
@@ -721,7 +742,7 @@ rule select_whole_genome_mt_minimap2:
 
 rule realign_mt_reads:
     input:
-        idx=f"{WORKDIR}/indexes/{SPECIES}/minimap2_mt_{{rotation}}.mmi",
+        idx=f"{WORKDIR}/indexes/{SPECIES}/minimap2_mt_{MT_MINIMAP2_INDEX_TAG}_{{rotation}}.mmi",
         fastq=f"{OUTDIR}/mt_reads/{{sample}}.mt_evidence.fastq.gz",
     output:
         bam=f"{OUTDIR}/mt_minimap2/{{rotation}}/{{sample}}.bam",

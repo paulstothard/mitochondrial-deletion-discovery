@@ -29,6 +29,8 @@ references:
     mt_length: 16569
 mapping:
   star_genome_sa_index_nbases: 14
+mt_realign:
+  minimap2_index_extra: -k21 -w11
 annotations:
   expected_adjacent_transcripts:
   - species: human

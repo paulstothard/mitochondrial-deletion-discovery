@@ -161,6 +161,20 @@ class CoreTests(unittest.TestCase):
 
         self.assertEqual(config["mapping"]["first_pass_minimap2_preset"], "splice")
         self.assertEqual(config["mapping"]["first_pass_minimap2_index_extra"], "-k15 -w5")
+        self.assertEqual(config["mt_realign"]["minimap2_preset"], "map-ont")
+        self.assertEqual(config["mt_realign"]["minimap2_index_extra"], "-k15 -w10")
+
+    def test_minimap2_index_paths_include_seed_profile(self):
+        root = Path(__file__).resolve().parents[1]
+        snakefile = (root / "Snakefile").read_text(encoding="utf-8")
+
+        self.assertIn("minimap2_full_{FIRST_PASS_MINIMAP2_INDEX_TAG}.mmi", snakefile)
+        self.assertIn("minimap2_mt_{MT_MINIMAP2_INDEX_TAG}_{{rotation}}.mmi", snakefile)
+        self.assertIn("minimap2 -x {params.preset} {params.extra} -d", snakefile)
+
+        for name in ("human_common_deletion", "human_bulkseq_matched_nanopore"):
+            config = yaml.safe_load((root / "config" / "datasets" / f"{name}.yaml").read_text(encoding="utf-8"))
+            self.assertEqual(config["mt_realign"]["minimap2_index_extra"], "-k21 -w11")
 
     def test_value_columns_excludes_normalization_denominators(self):
         matrix = pd.DataFrame(
