@@ -32,6 +32,7 @@ from make_deletion_report import (
     quality_profile_section,
     reference_support_explanation,
 )
+from make_deliverables import package_quality_results
 from make_quality_report_index import profile_rows
 from plot_deletion_results import gene_pair_pca_enabled, rank_label_boxes_overlap
 
@@ -88,6 +89,64 @@ def parse(line, mt_length=16313):
 
 
 class QualityEvidenceTests(unittest.TestCase):
+    def test_quality_deliverables_package_all_profiles_and_valid_links(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "results" / "test_dataset"
+            shared = root / "quality" / "shared"
+            shared.mkdir(parents=True)
+            config = {
+                "dataset": {"name": "test_dataset", "title": "Test dataset"},
+                "quality": {
+                    "primary_report_profile": "standard",
+                    "report_profiles": {
+                        "stringent": {"include_tiers": ["strong"]},
+                        "standard": {"include_tiers": ["strong", "supported"]},
+                        "exploratory": {"include_tiers": ["strong", "supported", "review"]},
+                    },
+                },
+            }
+            membership_rows = [
+                "exact_deletion_id\treport_profile\tincluded\tdistinct_observation_count",
+                "mtDel_1\tstringent\tyes\t2",
+                "mtDel_1\tstandard\tyes\t2",
+                "mtDel_1\texploratory\tyes\t2",
+            ]
+            (shared / "report_profile_membership.tsv").write_text("\n".join(membership_rows) + "\n", encoding="utf-8")
+            (shared / "canonical_clusters.tsv").write_text("exact_deletion_id\nmtDel_1\n", encoding="utf-8")
+
+            profiles = ["stringent", "standard", "exploratory"]
+            for profile in profiles:
+                source = root / "quality" / "profiles" / profile
+                for relative in (".report/read_lists", "plots", "matrices", "junctions", "analysis"):
+                    (source / relative).mkdir(parents=True)
+                (source / ".report" / "index.html").write_text(
+                    '<a href="plots/example.pdf">Plot</a><a href="read_lists/manifest.tsv">Reads</a>',
+                    encoding="utf-8",
+                )
+                (source / ".report" / "read_lists" / "manifest.tsv").write_text("id\nmtDel_1\n", encoding="utf-8")
+                (source / "plots" / "example.pdf").write_bytes(b"%PDF-1.4\n")
+                (source / "matrices" / "exact_deletion_raw_counts.tsv").write_text("sample\tmtDel_1\ns1\t2\n", encoding="utf-8")
+                (source / "junctions" / "junction_clusters.tsv").write_text("exact_deletion_id\nmtDel_1\n", encoding="utf-8")
+                (source / "junctions" / "canonical_observations.tsv").write_text("exact_deletion_id\nmtDel_1\n", encoding="utf-8")
+                (source / "junctions" / "junction_id_map.tsv").write_text("exact_deletion_id\nmtDel_1\n", encoding="utf-8")
+                (source / "analysis" / "deletion_burden.tsv").write_text("sample\tdeletion_reads\ns1\t2\n", encoding="utf-8")
+
+            package = root / "test_dataset_deliverables"
+            package_quality_results(root, package, "test_dataset", config, profiles)
+
+            selector = (package / "index.html").read_text(encoding="utf-8")
+            for profile in profiles:
+                self.assertIn(f'profiles/{profile}/index.html', selector)
+                self.assertTrue((package / "profiles" / profile / "index.html").is_file())
+                self.assertTrue((package / "profiles" / profile / "plots" / "example.pdf").is_file())
+                self.assertTrue((package / "profiles" / profile / "tables" / "exact_deletions.tsv").is_file())
+                self.assertTrue((package / "profiles" / profile / "matrices" / "exact_deletion_raw_counts.tsv").is_file())
+                self.assertTrue((package / "profiles" / profile / "read_lists" / "manifest.tsv").is_file())
+            self.assertEqual(
+                (package / "shared" / "canonical_clusters.tsv").read_text(encoding="utf-8"),
+                (shared / "canonical_clusters.tsv").read_text(encoding="utf-8"),
+            )
+
     def test_analysis_accepts_empty_audit_tsv(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "empty.tsv"
@@ -132,6 +191,7 @@ class QualityEvidenceTests(unittest.TestCase):
             self.assertNotIn(artifact, documentation)
         self.assertIn("3.0-quality-evidence-multi-caller", documentation)
         self.assertIn("results/<dataset>/quality/report/index.html", documentation)
+        self.assertIn("results/<dataset>/<dataset>_deliverables/index.html", documentation)
         self.assertIn("not_available_from_retained_intermediates", documentation)
 
     def test_cigar_query_metrics_tracks_short_read_coordinates(self):

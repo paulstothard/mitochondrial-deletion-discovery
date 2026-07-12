@@ -253,6 +253,11 @@ their retained cluster and observation counts. Shared canonical tables are under
 `results/<dataset>/quality/shared/`, and profile outputs are under
 `results/<dataset>/quality/profiles/<profile>/`.
 
+A complete workflow target creates
+`results/<dataset>/<dataset>_deliverables/index.html`. This self-contained selector
+links packaged profile directories containing each report and its tables, matrices,
+plots, and read lists, plus the shared canonical evidence and resolved configuration.
+
 Short-read RNA reports include a gene-pair matrix and PCA only when the STAR evidence
 stream is enabled. Gene-pair labels annotate or aggregate exact coordinate events;
 they do not replace exact-deletion identity or create additional candidates.

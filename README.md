@@ -293,7 +293,7 @@ fastp --version
 seqkit version
 ```
 
-Use the dataset-specific dry-run command below before downloading data or building results. The explicit report target and `--rerun-triggers mtime` keep the planned job list tied to the requested dataset output.
+Use the dataset-specific dry-run command below before downloading data or building results. The explicit deliverables target and `--rerun-triggers mtime` keep the planned job list tied to the complete requested dataset output.
 
 Snakemake can also create per-rule environments under `.snakemake/conda/` when `--use-conda` is used.
 
@@ -308,7 +308,7 @@ a clean run.
 Dry-run first:
 
 ```bash
-snakemake results/rat_aging_muscle/quality/report/index.html \
+snakemake results/rat_aging_muscle/rat_aging_muscle_deliverables/DELIVERABLES_COMPLETE.txt \
   --use-conda --cores 8 \
   --resources download=2 \
   --configfile config/datasets/rat_aging_muscle.yaml \
@@ -321,7 +321,7 @@ snakemake results/rat_aging_muscle/quality/report/index.html \
 Then run:
 
 ```bash
-snakemake results/rat_aging_muscle/quality/report/index.html \
+snakemake results/rat_aging_muscle/rat_aging_muscle_deliverables/DELIVERABLES_COMPLETE.txt \
   --use-conda --cores 8 \
   --resources download=2 \
   --configfile config/datasets/rat_aging_muscle.yaml \
@@ -333,7 +333,7 @@ snakemake results/rat_aging_muscle/quality/report/index.html \
 Main report:
 
 ```text
-results/rat_aging_muscle/quality/report/index.html
+results/rat_aging_muscle/rat_aging_muscle_deliverables/index.html
 ```
 
 ## Run The Human Common Deletion Dataset
@@ -355,7 +355,7 @@ These can be raw BCLConvert FASTQs. The normal workflow stages local FASTQs, run
 Dry-run first:
 
 ```bash
-snakemake results/human_common_deletion/quality/report/index.html \
+snakemake results/human_common_deletion/human_common_deletion_deliverables/DELIVERABLES_COMPLETE.txt \
   --use-conda --cores 8 \
   --configfile config/datasets/human_common_deletion.yaml \
   --rerun-triggers mtime \
@@ -367,7 +367,7 @@ snakemake results/human_common_deletion/quality/report/index.html \
 Then run:
 
 ```bash
-snakemake results/human_common_deletion/quality/report/index.html \
+snakemake results/human_common_deletion/human_common_deletion_deliverables/DELIVERABLES_COMPLETE.txt \
   --use-conda --cores 8 \
   --configfile config/datasets/human_common_deletion.yaml \
   --rerun-triggers mtime \
@@ -378,7 +378,7 @@ snakemake results/human_common_deletion/quality/report/index.html \
 Main report:
 
 ```text
-results/human_common_deletion/quality/report/index.html
+results/human_common_deletion/human_common_deletion_deliverables/index.html
 ```
 
 ## Run The Matched Human Bulk RNA-seq Dataset
@@ -394,7 +394,7 @@ config/datasets/human_bulkseq_matched_nanopore.yaml
 Dry-run first:
 
 ```bash
-snakemake results/human_bulkseq_matched_nanopore/quality/report/index.html \
+snakemake results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_deliverables/DELIVERABLES_COMPLETE.txt \
   --use-conda --cores 8 \
   --configfile config/datasets/human_bulkseq_matched_nanopore.yaml \
   --rerun-triggers mtime \
@@ -406,7 +406,7 @@ snakemake results/human_bulkseq_matched_nanopore/quality/report/index.html \
 Then run:
 
 ```bash
-snakemake results/human_bulkseq_matched_nanopore/quality/report/index.html \
+snakemake results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_deliverables/DELIVERABLES_COMPLETE.txt \
   --use-conda --cores 8 \
   --configfile config/datasets/human_bulkseq_matched_nanopore.yaml \
   --rerun-triggers mtime \
@@ -417,7 +417,7 @@ snakemake results/human_bulkseq_matched_nanopore/quality/report/index.html \
 Main report:
 
 ```text
-results/human_bulkseq_matched_nanopore/quality/report/index.html
+results/human_bulkseq_matched_nanopore/human_bulkseq_matched_nanopore_deliverables/index.html
 ```
 
 ## Run The Human Nanopore Dataset
@@ -440,7 +440,7 @@ This config disables FastQC and fastp trimming, stages the local uncompressed FA
 Dry-run first:
 
 ```bash
-snakemake results/human_nanopore/quality/report/index.html \
+snakemake results/human_nanopore/human_nanopore_deliverables/DELIVERABLES_COMPLETE.txt \
   --use-conda \
   --cores 8 \
   --configfile config/datasets/human_nanopore.yaml \
@@ -453,7 +453,7 @@ snakemake results/human_nanopore/quality/report/index.html \
 Then run:
 
 ```bash
-snakemake results/human_nanopore/quality/report/index.html \
+snakemake results/human_nanopore/human_nanopore_deliverables/DELIVERABLES_COMPLETE.txt \
   --use-conda \
   --cores 8 \
   --configfile config/datasets/human_nanopore.yaml \
@@ -465,7 +465,7 @@ snakemake results/human_nanopore/quality/report/index.html \
 Main report:
 
 ```text
-results/human_nanopore/quality/report/index.html
+results/human_nanopore/human_nanopore_deliverables/index.html
 ```
 
 ## Advanced: Rerun From Existing Trimmed FASTQs
@@ -475,7 +475,7 @@ Use this only when downloads and trimming are already complete and you do not wa
 Dry-run first:
 
 ```bash
-snakemake results/rat_aging_muscle/quality/report/index.html \
+snakemake results/rat_aging_muscle/rat_aging_muscle_deliverables/DELIVERABLES_COMPLETE.txt \
   --use-conda \
   --cores 8 \
   --configfile config/datasets/rat_aging_muscle.yaml \
@@ -490,6 +490,9 @@ Check that the dry-run does not include `prepare_reads`, `fastqc_raw`, or `trim_
 
 Report and canonical evidence outputs:
 
+- `results/<dataset>/<dataset>_deliverables/index.html` - self-contained deliverable selector for the stringent, standard, and exploratory packages.
+- `results/<dataset>/<dataset>_deliverables/profiles/<profile>/` - packaged report, tables, matrices, plots, and read lists for one profile.
+- `results/<dataset>/<dataset>_deliverables/shared/` - packaged canonical evidence and provenance shared by all profiles.
 - `results/<dataset>/quality/report/index.html` - profile selector and profile counts.
 - `results/<dataset>/quality/shared/` - canonical source, observation, cluster, tier, profile-membership, and resolved-configuration tables.
 - `results/<dataset>/quality/profiles/<profile>/.report/index.html` - one complete profile report.

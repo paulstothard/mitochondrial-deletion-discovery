@@ -299,11 +299,17 @@ does not replace the normal plus rotated primary design.
 
 ## Result Provenance
 
-The quality report entry point is
-`results/<dataset>/quality/report/index.html`. Shared canonical outputs are under
-`results/<dataset>/quality/shared/`; profile-specific junction tables, matrices,
-statistics, plots, and reports are under
-`results/<dataset>/quality/profiles/<profile>/`.
+The deliverable entry point is
+`results/<dataset>/<dataset>_deliverables/index.html`. It links self-contained
+stringent, standard, and exploratory packages. Each profile package contains its
+report, tables, matrices, plots, and deletion read lists. Shared canonical evidence,
+profile membership, tier summaries, and resolved configuration are included under
+the deliverable `shared/` and `config/` directories.
+
+The corresponding workflow working outputs remain under
+`results/<dataset>/quality/`: `report/index.html` is the working profile selector,
+`shared/` contains canonical outputs, and `profiles/<profile>/` contains the
+profile-specific analysis tree.
 
 Canonical deliverables include:
 

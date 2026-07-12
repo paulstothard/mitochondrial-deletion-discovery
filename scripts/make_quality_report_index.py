@@ -35,39 +35,28 @@ def profile_rows(config: dict, membership: list[dict]) -> list[dict]:
     return rows
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--title", required=True)
-    parser.add_argument("--config", required=True)
-    parser.add_argument("--membership", required=True)
-    parser.add_argument("--reports", nargs="+", required=True)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-    config = read_yaml(args.config)
-    rows = profile_rows(config, read_tsv(args.membership))
-    report_by_profile = {Path(path).parents[1].name: Path(path) for path in args.reports}
+def render_index(title: str, config: dict, membership: list[dict], report_links: dict[str, str]) -> str:
+    rows = profile_rows(config, membership)
     cards = []
-    output_parent = Path(args.output).resolve().parent
     for row in rows:
         profile = row["profile"]
-        report = report_by_profile.get(profile)
-        if report is None:
+        relative = report_links.get(profile)
+        if relative is None:
             continue
-        relative = Path("..") / "profiles" / profile / ".report" / "index.html"
         cards.append(
             f'<article><h2>{html.escape(profile.capitalize())}</h2>'
             f'<p><strong>{row["deletion_clusters"]}</strong> exact deletion clusters</p>'
             f'<p><strong>{row["distinct_observations"]}</strong> distinct observations</p>'
             f'<p>Included tiers: {html.escape(row["included_tiers"])}</p>'
             f'<p>{html.escape(row["role"])}</p>'
-            f'<a href="{html.escape(str(relative))}">Open report</a></article>'
+            f'<a href="{html.escape(relative)}">Open report</a></article>'
         )
     primary = html.escape(str(config.get("quality", {}).get("primary_report_profile", "standard")))
-    document = f"""<!doctype html>
+    return f"""<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>{html.escape(args.title)} quality reports</title>
+  <title>{html.escape(title)} quality reports</title>
   <style>
     body {{ margin: 0; font-family: system-ui, sans-serif; color: #1f2933; background: #f4f6f8; }}
     header {{ background: #243447; color: white; padding: 32px 40px; }}
@@ -79,7 +68,7 @@ def main() -> None:
   </style>
 </head>
 <body>
-  <header><h1>{html.escape(args.title)}</h1><p>Evidence-quality report views generated from one shared canonical call set.</p></header>
+  <header><h1>{html.escape(title)}</h1><p>Evidence-quality report views generated from one shared canonical call set.</p></header>
   <main>
     <p>The predefined primary profile is <strong>{primary}</strong>. Each report rebuilds its matrices, PCA, plots, and summaries from its retained evidence. PCA axes are not assumed equivalent across profiles.</p>
     <div class="grid">{''.join(cards)}</div>
@@ -87,6 +76,23 @@ def main() -> None:
 </body>
 </html>
 """
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--title", required=True)
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--membership", required=True)
+    parser.add_argument("--reports", nargs="+", required=True)
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+    config = read_yaml(args.config)
+    report_by_profile = {Path(path).parents[1].name: Path(path) for path in args.reports}
+    report_links = {
+        profile: str(Path("..") / "profiles" / profile / ".report" / "index.html")
+        for profile in report_by_profile
+    }
+    document = render_index(args.title, config, read_tsv(args.membership), report_links)
     ensure_parent(args.output)
     Path(args.output).write_text(document, encoding="utf-8")
 

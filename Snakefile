@@ -209,6 +209,10 @@ def quality_profile_plot_inputs(wildcards):
     return [f"{OUTDIR}/quality/profiles/{wildcards.quality_profile}/plots/{name}" for name in QUALITY_PLOT_NAMES]
 
 
+def all_quality_profile_files(relative_path):
+    return [f"{OUTDIR}/quality/profiles/{profile}/{relative_path}" for profile in QUALITY_PROFILES]
+
+
 def known_sequence_searches_configured():
     return bool(CFG.get("analysis", {}).get("known_sequence_searches", []) or [])
 
@@ -1444,36 +1448,127 @@ rule make_quality_report_index:
 
 rule make_deliverables:
     input:
-        report=f"{OUTDIR}/.report/index.html",
-        read_list_manifest=f"{OUTDIR}/.report/read_lists/manifest.tsv",
-        config=DATASET_CONFIG if DATASET_CONFIG else RESOLVED_CONFIG,
-        clusters=f"{OUTDIR}/junctions/junction_clusters.tsv",
-        burden=f"{OUTDIR}/analysis/deletion_burden.tsv",
-        exact_comparison=f"{OUTDIR}/analysis/exact_deletion_comparison.tsv",
-        affected_comparison=f"{OUTDIR}/analysis/affected_feature_comparison.tsv",
-        impact_comparison=f"{OUTDIR}/analysis/feature_impact_class_comparison.tsv",
+        report=f"{OUTDIR}/quality/report/index.html" if QUALITY_ENABLED else f"{OUTDIR}/.report/index.html",
+        read_list_manifest=(
+            expand(
+                f"{OUTDIR}/quality/profiles/{{quality_profile}}/.report/read_lists/manifest.tsv",
+                quality_profile=QUALITY_PROFILES,
+            )
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/.report/read_lists/manifest.tsv"
+        ),
+        config=(
+            f"{OUTDIR}/quality/shared/resolved_quality_config.yaml"
+            if QUALITY_ENABLED
+            else (DATASET_CONFIG if DATASET_CONFIG else RESOLVED_CONFIG)
+        ),
+        clusters=(
+            expand(
+                f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/junction_clusters.tsv",
+                quality_profile=QUALITY_PROFILES,
+            )
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/junctions/junction_clusters.tsv"
+        ),
+        burden=(
+            expand(
+                f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_burden.tsv",
+                quality_profile=QUALITY_PROFILES,
+            )
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/analysis/deletion_burden.tsv"
+        ),
+        exact_comparison=(
+            expand(
+                f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/exact_deletion_comparison.tsv",
+                quality_profile=QUALITY_PROFILES,
+            )
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/analysis/exact_deletion_comparison.tsv"
+        ),
+        affected_comparison=(
+            expand(
+                f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/affected_feature_comparison.tsv",
+                quality_profile=QUALITY_PROFILES,
+            )
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/analysis/affected_feature_comparison.tsv"
+        ),
+        impact_comparison=(
+            expand(
+                f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/feature_impact_class_comparison.tsv",
+                quality_profile=QUALITY_PROFILES,
+            )
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/analysis/feature_impact_class_comparison.tsv"
+        ),
         known_sequence_summary=f"{OUTDIR}/analysis/known_sequence_search_summary.tsv",
         known_sequence_hits=f"{OUTDIR}/analysis/known_sequence_search_hits.tsv",
-        exact_mtpm=f"{OUTDIR}/matrices/exact_deletion_support_per_million_mt_reads.tsv",
-        affected_mtpm=f"{OUTDIR}/matrices/affected_feature_support_per_million_mt_reads.tsv",
-        burden_plot=f"{OUTDIR}/plots/deletion_burden_by_sample.pdf",
-        rainfall_left=f"{OUTDIR}/plots/deletion_rainfall_left_breakpoint.pdf",
-        rainfall_right=f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
-        rainfall_midpoint=f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
-        breakpoint_pair_map=f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
-        endpoint_density=f"{OUTDIR}/plots/pooled_breakpoint_support_density.pdf",
-        endpoint_density_capped=f"{OUTDIR}/plots/pooled_breakpoint_support_density_capped.pdf",
-        affected_support=f"{OUTDIR}/plots/affected_feature_support.pdf",
-        recurrence=f"{OUTDIR}/plots/exact_deletion_recurrence.pdf",
+        exact_mtpm=(
+            all_quality_profile_files("matrices/exact_deletion_support_per_million_mt_reads.tsv")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/matrices/exact_deletion_support_per_million_mt_reads.tsv"
+        ),
+        affected_mtpm=(
+            all_quality_profile_files("matrices/affected_feature_support_per_million_mt_reads.tsv")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/matrices/affected_feature_support_per_million_mt_reads.tsv"
+        ),
+        burden_plot=(
+            all_quality_profile_files("plots/deletion_burden_by_sample.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/deletion_burden_by_sample.pdf"
+        ),
+        rainfall_left=(
+            all_quality_profile_files("plots/deletion_rainfall_left_breakpoint.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/deletion_rainfall_left_breakpoint.pdf"
+        ),
+        rainfall_right=(
+            all_quality_profile_files("plots/deletion_rainfall_right_breakpoint.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf"
+        ),
+        rainfall_midpoint=(
+            all_quality_profile_files("plots/deletion_rainfall_midpoint.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf"
+        ),
+        breakpoint_pair_map=(
+            all_quality_profile_files("plots/breakpoint_pair_support_map.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf"
+        ),
+        endpoint_density=(
+            all_quality_profile_files("plots/pooled_breakpoint_support_density.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/pooled_breakpoint_support_density.pdf"
+        ),
+        endpoint_density_capped=(
+            all_quality_profile_files("plots/pooled_breakpoint_support_density_capped.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/pooled_breakpoint_support_density_capped.pdf"
+        ),
+        affected_support=(
+            all_quality_profile_files("plots/affected_feature_support.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/affected_feature_support.pdf"
+        ),
+        recurrence=(
+            all_quality_profile_files("plots/exact_deletion_recurrence.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/exact_deletion_recurrence.pdf"
+        ),
     output:
         complete=f"{DELIVERABLES_DIR}/DELIVERABLES_COMPLETE.txt",
     params:
         results_dir=OUTDIR,
         outdir=DELIVERABLES_DIR,
         dataset=DATASET,
+        quality_profiles=("--quality-profiles " + " ".join(QUALITY_PROFILES)) if QUALITY_ENABLED else "",
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:
         "python scripts/make_deliverables.py --results-dir {params.results_dir} --dataset {params.dataset} "
         "--config {input.config} --defaults config/defaults.yaml "
-        "--output-dir {params.outdir} --complete {output.complete}"
+        "--output-dir {params.outdir} --complete {output.complete} {params.quality_profiles}"
