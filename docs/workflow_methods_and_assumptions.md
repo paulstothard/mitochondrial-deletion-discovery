@@ -306,6 +306,16 @@ report, tables, matrices, plots, and deletion read lists. Shared canonical evide
 profile membership, tier summaries, and resolved configuration are included under
 the deliverable `shared/` and `config/` directories.
 
+The workflow also creates
+`results/<dataset>/<dataset>_deliverables_light/index.html` and a matching
+`<dataset>_deliverables_light.zip` by default. The light package retains each
+profile's report, cluster-level exact-deletion and analysis tables, matrices, plots,
+methods, configuration, and tier summaries. It excludes per-deletion read lists,
+source-candidate and canonical-observation tables, ID maps, and intermediate audit
+tables. Read-list links and instructions are removed from the light reports. The ZIP
+contains the top-level light deliverable directory and can be opened with standard
+ZIP tools.
+
 The corresponding workflow working outputs remain under
 `results/<dataset>/quality/`: `report/index.html` is the working profile selector,
 `shared/` contains canonical outputs, and `profiles/<profile>/` contains the

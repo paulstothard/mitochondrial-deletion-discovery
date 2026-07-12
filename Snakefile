@@ -32,6 +32,8 @@ DATASET = CFG["dataset"]["name"]
 SPECIES = CFG["dataset"]["species"]
 OUTDIR = f'{CFG["project"]["output_dir"]}/{DATASET}'
 DELIVERABLES_DIR = f"{OUTDIR}/{DATASET}_deliverables"
+LIGHT_DELIVERABLES_DIR = f"{OUTDIR}/{DATASET}_deliverables_light"
+LIGHT_DELIVERABLES_ZIP = f"{LIGHT_DELIVERABLES_DIR}.zip"
 WORKDIR = CFG["project"]["work_dir"]
 REF = CFG["references"][SPECIES]
 MT_LENGTH = int(REF["mt_length"])
@@ -290,6 +292,8 @@ rule all:
         f"{OUTDIR}/quality/report/index.html" if QUALITY_ENABLED else [],
         f"{OUTDIR}/.report/read_lists/manifest.tsv",
         f"{DELIVERABLES_DIR}/DELIVERABLES_COMPLETE.txt",
+        f"{LIGHT_DELIVERABLES_DIR}/DELIVERABLES_COMPLETE.txt" if QUALITY_ENABLED else [],
+        LIGHT_DELIVERABLES_ZIP if QUALITY_ENABLED else [],
 
 
 checkpoint resolve_samples:
@@ -1572,3 +1576,24 @@ rule make_deliverables:
         "python scripts/make_deliverables.py --results-dir {params.results_dir} --dataset {params.dataset} "
         "--config {input.config} --defaults config/defaults.yaml "
         "--output-dir {params.outdir} --complete {output.complete} {params.quality_profiles}"
+
+
+rule make_light_deliverables:
+    input:
+        full_complete=f"{DELIVERABLES_DIR}/DELIVERABLES_COMPLETE.txt",
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+    output:
+        complete=f"{LIGHT_DELIVERABLES_DIR}/DELIVERABLES_COMPLETE.txt",
+        archive=LIGHT_DELIVERABLES_ZIP,
+    params:
+        results_dir=OUTDIR,
+        outdir=LIGHT_DELIVERABLES_DIR,
+        dataset=DATASET,
+        quality_profiles=" ".join(QUALITY_PROFILES),
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/make_deliverables.py --results-dir {params.results_dir} --dataset {params.dataset} "
+        "--config {input.config} --defaults config/defaults.yaml --output-dir {params.outdir} "
+        "--complete {output.complete} --quality-profiles {params.quality_profiles} --light "
+        "--zip-output {output.archive}"

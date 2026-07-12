@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 import yaml
@@ -32,7 +33,12 @@ from make_deletion_report import (
     quality_profile_section,
     reference_support_explanation,
 )
-from make_deliverables import package_quality_results
+from make_deliverables import (
+    create_zip_archive,
+    lightweight_report_html,
+    package_light_quality_results,
+    package_quality_results,
+)
 from make_quality_report_index import profile_rows
 from plot_deletion_results import gene_pair_pca_enabled, rank_label_boxes_overlap
 
@@ -113,6 +119,10 @@ class QualityEvidenceTests(unittest.TestCase):
             ]
             (shared / "report_profile_membership.tsv").write_text("\n".join(membership_rows) + "\n", encoding="utf-8")
             (shared / "canonical_clusters.tsv").write_text("exact_deletion_id\nmtDel_1\n", encoding="utf-8")
+            (shared / "source_candidates.tsv").write_text("read_id\nr1\n", encoding="utf-8")
+            (shared / "evidence_build_summary.tsv").write_text("metric\tvalue\nrows\t1\n", encoding="utf-8")
+            (shared / "quality_tier_summary.tsv").write_text("tier\tclusters\nstrong\t1\n", encoding="utf-8")
+            (shared / "resolved_quality_config.yaml").write_text("quality:\n  enabled: true\n", encoding="utf-8")
 
             profiles = ["stringent", "standard", "exploratory"]
             for profile in profiles:
@@ -120,7 +130,8 @@ class QualityEvidenceTests(unittest.TestCase):
                 for relative in (".report/read_lists", "plots", "matrices", "junctions", "analysis"):
                     (source / relative).mkdir(parents=True)
                 (source / ".report" / "index.html").write_text(
-                    '<a href="plots/example.pdf">Plot</a><a href="read_lists/manifest.tsv">Reads</a>',
+                    '<main><a href="plots/example.pdf">Plot</a>'
+                    '<a class="read-list-link" href="read_lists/manifest.tsv">Reads</a></main>',
                     encoding="utf-8",
                 )
                 (source / ".report" / "read_lists" / "manifest.tsv").write_text("id\nmtDel_1\n", encoding="utf-8")
@@ -146,6 +157,34 @@ class QualityEvidenceTests(unittest.TestCase):
                 (package / "shared" / "canonical_clusters.tsv").read_text(encoding="utf-8"),
                 (shared / "canonical_clusters.tsv").read_text(encoding="utf-8"),
             )
+
+            light = root / "test_dataset_deliverables_light"
+            package_light_quality_results(root, light, "test_dataset", config, profiles)
+            (light / "DELIVERABLES_COMPLETE.txt").write_text("complete\n", encoding="utf-8")
+            archive = root / "test_dataset_deliverables_light.zip"
+            create_zip_archive(light, archive)
+
+            self.assertFalse((light / "shared" / "source_candidates.tsv").exists())
+            self.assertFalse((light / "shared" / "canonical_clusters.tsv").exists())
+            self.assertTrue((light / "shared" / "quality_tier_summary.tsv").is_file())
+            for profile in profiles:
+                profile_root = light / "profiles" / profile
+                self.assertFalse((profile_root / "read_lists").exists())
+                self.assertFalse((profile_root / "tables" / "canonical_observations.tsv").exists())
+                self.assertTrue((profile_root / "tables" / "exact_deletions.tsv").is_file())
+                report = (profile_root / "index.html").read_text(encoding="utf-8")
+                self.assertIn("Light deliverable package", report)
+                self.assertNotIn('href="read_lists/', report)
+            with zipfile.ZipFile(archive, "r") as zipped:
+                self.assertIsNone(zipped.testzip())
+                self.assertIn(
+                    "test_dataset_deliverables_light/profiles/standard/index.html",
+                    zipped.namelist(),
+                )
+
+    def test_lightweight_report_rejects_unclassified_read_list_links(self):
+        with self.assertRaises(ValueError):
+            lightweight_report_html('<main><a href="read_lists/unclassified.tsv">Reads</a></main>')
 
     def test_analysis_accepts_empty_audit_tsv(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -192,6 +231,7 @@ class QualityEvidenceTests(unittest.TestCase):
         self.assertIn("3.0-quality-evidence-multi-caller", documentation)
         self.assertIn("results/<dataset>/quality/report/index.html", documentation)
         self.assertIn("results/<dataset>/<dataset>_deliverables/index.html", documentation)
+        self.assertIn("results/<dataset>/<dataset>_deliverables_light.zip", documentation)
         self.assertIn("not_available_from_retained_intermediates", documentation)
 
     def test_cigar_query_metrics_tracks_short_read_coordinates(self):

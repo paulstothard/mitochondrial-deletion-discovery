@@ -257,6 +257,11 @@ A complete workflow target creates
 `results/<dataset>/<dataset>_deliverables/index.html`. This self-contained selector
 links packaged profile directories containing each report and its tables, matrices,
 plots, and read lists, plus the shared canonical evidence and resolved configuration.
+The same target creates an uncompressed `<dataset>_deliverables_light/` package and
+`<dataset>_deliverables_light.zip`. The light package preserves separate
+profile-specific cluster results and presentation outputs while excluding read lists
+and observation-level audit material. Full and light packages are derived from the
+same canonical analysis outputs; packaging does not create or recall deletion events.
 
 Short-read RNA reports include a gene-pair matrix and PCA only when the STAR evidence
 stream is enabled. Gene-pair labels annotate or aggregate exact coordinate events;

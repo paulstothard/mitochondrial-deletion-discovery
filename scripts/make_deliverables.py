@@ -7,6 +7,7 @@ import html
 import json
 import re
 import shutil
+import zipfile
 from pathlib import Path
 
 from common import deep_update, ensure_parent, read_tsv, read_yaml, write_tsv, write_yaml
@@ -244,6 +245,157 @@ def validate_report_links(report: Path, package_root: Path) -> None:
         raise FileNotFoundError(f"Broken links in {report}: {', '.join(sorted(set(missing)))}")
 
 
+def lightweight_report_html(document: str) -> str:
+    document = re.sub(
+        r'<a class="read-list-link"[^>]*>(.*?)</a>',
+        r"\1",
+        document,
+        flags=re.DOTALL,
+    )
+    replacements = {
+        "When read-level hits are available, click a value in the matching_reads column to open a TSV file with the matching read names.":
+            "Read-level hit files are excluded from the light deliverable package.",
+        "Click total_supporting_reads_across_matches to open the read rows supporting all remap calls assigned to that target.":
+            "Read rows supporting assigned remap calls are available in the full deliverable package.",
+        "and links from total_supporting_reads to read-level evidence files.":
+            "with total_supporting_reads shown as a count. Read-level evidence files are available in the full deliverable package.",
+    }
+    for source, replacement in replacements.items():
+        document = document.replace(source, replacement)
+    notice = (
+        '<div class="notice"><strong>Light deliverable package:</strong> '
+        "Read lists and observation-level audit tables are excluded. Cluster-level results, "
+        "statistics, matrices, plots, methods, and configuration are included.</div>"
+    )
+    marker = "<main>"
+    if marker not in document:
+        raise ValueError("Report HTML does not contain a <main> element")
+    document = document.replace(marker, marker + notice, 1)
+    if re.search(r'href="read_lists/', document):
+        raise ValueError("Light report still contains a read-list link")
+    return document
+
+
+def create_zip_archive(package_dir: Path, output: Path) -> None:
+    require_dir(package_dir)
+    ensure_parent(output)
+    if output.exists():
+        output.unlink()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+        for path in sorted(package_dir.rglob("*")):
+            if path.is_file():
+                archive.write(path, path.relative_to(package_dir.parent))
+    with zipfile.ZipFile(output, "r") as archive:
+        corrupt = archive.testzip()
+        if corrupt:
+            raise OSError(f"ZIP integrity check failed at {corrupt}")
+
+
+def package_light_quality_results(
+    root: Path,
+    out: Path,
+    dataset: str,
+    config: dict,
+    profiles: list[str],
+) -> None:
+    quality = require_dir(root / "quality")
+    shared = require_dir(quality / "shared")
+    membership_path = require_file(shared / "report_profile_membership.tsv")
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+
+    light_shared = out / "shared"
+    light_shared.mkdir()
+    for name in (
+        "evidence_build_summary.tsv",
+        "quality_tier_summary.tsv",
+        "report_profile_membership.tsv",
+        "resolved_quality_config.yaml",
+    ):
+        shutil.copy2(require_file(shared / name), light_shared / name)
+    (out / "config").mkdir()
+    write_yaml(out / "config" / "resolved_config.yaml", config)
+
+    report_links = {profile: f"profiles/{profile}/index.html" for profile in profiles}
+    title = str(config.get("dataset", {}).get("title", dataset))
+    (out / "index.html").write_text(
+        render_index(title, config, read_tsv(membership_path), report_links),
+        encoding="utf-8",
+    )
+
+    for profile in profiles:
+        source = require_dir(quality / "profiles" / profile)
+        destination = out / "profiles" / profile
+        destination.mkdir(parents=True)
+        report = require_file(source / ".report" / "index.html").read_text(encoding="utf-8")
+        (destination / "index.html").write_text(lightweight_report_html(report), encoding="utf-8")
+        copy_directory(source / "plots", destination / "plots")
+        copy_directory(source / "matrices", destination / "matrices")
+
+        tables = destination / "tables"
+        tables.mkdir()
+        shutil.copy2(
+            require_file(source / "junctions" / "junction_clusters.tsv"),
+            tables / "exact_deletions.tsv",
+        )
+        for analysis_table in sorted(require_dir(source / "analysis").glob("*.tsv")):
+            shutil.copy2(analysis_table, tables / analysis_table.name)
+        known_summary = root / "analysis" / "known_sequence_search_summary.tsv"
+        if known_summary.is_file():
+            shutil.copy2(known_summary, tables / known_summary.name)
+        write_tsv(tables / "run_methods.tsv", flatten_config(config), ["setting", "value"])
+        write_tsv(
+            tables / "data_dictionary.tsv",
+            data_dictionary_rows(tables),
+            ["table", "column", "category", "definition"],
+        )
+        write_guide(destination / "plots" / "README.txt", "Plot guide", PLOT_EXPLANATIONS)
+        write_guide(destination / "tables" / "README.txt", "Analysis table guide", TABLE_EXPLANATIONS)
+        (destination / "README.txt").write_text(
+            "\n".join(
+                [
+                    f"{profile.capitalize()} evidence profile for dataset: {dataset}",
+                    "",
+                    "Start here:",
+                    "- index.html",
+                    "",
+                    "Contents:",
+                    "- tables/exact_deletions.tsv",
+                    "- tables/*.tsv",
+                    "- matrices/*.tsv",
+                    "- plots/*.pdf and plots/*.svg",
+                    "",
+                    "Read lists and observation-level audit tables are provided in the full deliverable package.",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    (out / "README.txt").write_text(
+        "\n".join(
+            [
+                f"Light deliverables for dataset: {dataset}",
+                "",
+                "This shareable package contains reports, cluster-level tables, matrices, plots, methods, and configuration.",
+                "Read lists, observation-level audit tables, FASTQ, BAM, reference-index, and intermediate alignment files are excluded.",
+                "",
+                "Start here:",
+                "- index.html",
+                "",
+                "Evidence profiles:",
+                *[f"- profiles/{profile}/index.html" for profile in profiles],
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    validate_report_links(out / "index.html", out)
+    for profile in profiles:
+        validate_report_links(out / "profiles" / profile / "index.html", out)
+
+
 def package_quality_results(
     root: Path,
     out: Path,
@@ -359,15 +511,20 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--complete", required=True)
     parser.add_argument("--quality-profiles", nargs="+")
+    parser.add_argument("--light", action="store_true")
+    parser.add_argument("--zip-output")
     args = parser.parse_args()
 
     root = Path(args.results_dir)
     out = Path(args.output_dir)
     merged_config = deep_update(read_yaml(args.defaults), read_yaml(args.config))
     if args.quality_profiles:
-        package_quality_results(root, out, args.dataset, merged_config, args.quality_profiles)
+        package_function = package_light_quality_results if args.light else package_quality_results
+        package_function(root, out, args.dataset, merged_config, args.quality_profiles)
         ensure_parent(args.complete)
         Path(args.complete).write_text("complete\n", encoding="utf-8")
+        if args.zip_output:
+            create_zip_archive(out, Path(args.zip_output))
         return
 
     out.mkdir(parents=True, exist_ok=True)
