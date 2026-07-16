@@ -1,3 +1,26 @@
+function supportSliderValueForThreshold(target, supportMin, supportMax, sliderMax) {
+  const maxValue = Number(sliderMax);
+  if (!Number.isFinite(target) || !Number.isFinite(supportMin) || !Number.isFinite(supportMax)
+    || !Number.isFinite(maxValue) || maxValue <= 0 || supportMin <= 0) return 0;
+  if (supportMax <= supportMin || target <= supportMin) return 0;
+  if (target >= supportMax) return maxValue;
+  const fraction = Math.log(target / supportMin) / Math.log(supportMax / supportMin);
+  return Math.max(0, Math.min(maxValue, Math.floor(fraction * maxValue)));
+}
+
+function syncSupportSliderToObservations(entries, minimumObservations, minimumSize, slider,
+  observationField, supportMin, supportMax) {
+  const candidates = entries
+    .filter((entry) => Number(entry.dataset[observationField]) >= minimumObservations
+      && Number(entry.dataset.deletedSize) >= minimumSize)
+    .map((entry) => Number(entry.dataset.support))
+    .filter(Number.isFinite);
+  const target = candidates.length ? Math.min(...candidates) : supportMax;
+  slider.value = String(candidates.length
+    ? supportSliderValueForThreshold(target, supportMin, supportMax, slider.max)
+    : Number(slider.max));
+}
+
 document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
   const target = document.getElementById(controls.dataset.target);
   const points = Array.from(target.querySelectorAll('.rainfall-point'));
@@ -68,8 +91,27 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
     if (observationFilter) observationFilter.value = 'linked';
     renderRainfall();
   });
-  if (observationFilter) observationFilter.addEventListener('change', renderRainfall);
-  if (sizeFilter) sizeFilter.addEventListener('change', renderRainfall);
+  function syncRainfallSupportToObservations() {
+    if (!observationFilter || observationFilter.value === 'linked') return;
+    const minimumSize = sizeFilter ? Number(sizeFilter.value) : 0;
+    syncSupportSliderToObservations(
+      points, Number(observationFilter.value), minimumSize, slider,
+      'supportingReads', supportMin, supportMax,
+    );
+  }
+
+  if (observationFilter) {
+    observationFilter.addEventListener('change', () => {
+      syncRainfallSupportToObservations();
+      renderRainfall();
+    });
+  }
+  if (sizeFilter) {
+    sizeFilter.addEventListener('change', () => {
+      syncRainfallSupportToObservations();
+      renderRainfall();
+    });
+  }
   reset.addEventListener('click', () => {
     slider.value = '0';
     if (observationFilter) observationFilter.value = 'linked';
@@ -107,6 +149,15 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         if (!Number.isFinite(supportMin) || !Number.isFinite(supportMax) || supportMin <= 0) return 0;
         if (fraction <= 0 || supportMax <= supportMin) return supportMin;
         return supportMin * Math.pow(supportMax / supportMin, fraction);
+      }
+
+      function syncChordSupportToObservations() {
+        if (observationFilter.value === 'linked') return;
+        const minimumSize = sizeFilter ? Number(sizeFilter.value) : 0;
+        syncSupportSliderToObservations(
+          chords, Number(observationFilter.value), minimumSize, slider,
+          'observations', supportMin, supportMax,
+        );
       }
 
       function render() {
@@ -149,11 +200,13 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
       });
       observationFilter.addEventListener('change', () => {
         baselineMode = false;
+        syncChordSupportToObservations();
         render();
       });
       if (sizeFilter) {
         sizeFilter.addEventListener('change', () => {
           baselineMode = false;
+          syncChordSupportToObservations();
           render();
         });
       }
@@ -194,6 +247,15 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         if (!Number.isFinite(supportMin) || !Number.isFinite(supportMax) || supportMin <= 0) return 0;
         if (fraction <= 0 || supportMax <= supportMin) return supportMin;
         return supportMin * Math.pow(supportMax / supportMin, fraction);
+      }
+
+      function syncBreakpointSupportToObservations() {
+        if (observationFilter.value === 'linked') return;
+        const minimumSize = sizeFilter ? Number(sizeFilter.value) : 0;
+        syncSupportSliderToObservations(
+          points, Number(observationFilter.value), minimumSize, slider,
+          'supportingObservations', supportMin, supportMax,
+        );
       }
 
       function render() {
@@ -239,8 +301,16 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         observationFilter.value = 'linked';
         render();
       });
-      observationFilter.addEventListener('change', render);
-      if (sizeFilter) sizeFilter.addEventListener('change', render);
+      observationFilter.addEventListener('change', () => {
+        syncBreakpointSupportToObservations();
+        render();
+      });
+      if (sizeFilter) {
+        sizeFilter.addEventListener('change', () => {
+          syncBreakpointSupportToObservations();
+          render();
+        });
+      }
       reset.addEventListener('click', () => {
         slider.value = '0';
         observationFilter.value = 'linked';

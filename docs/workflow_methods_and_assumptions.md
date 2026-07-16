@@ -206,8 +206,10 @@ that support threshold before the count cap. Its logarithmic support slider cont
 minimum normalized support. Rainfall HTML views load the complete eligible call set
 by default and provide the same support slider plus point mouseovers; rainfall PDFs
 remain static all-call snapshots. The
-observation selector can add an absolute raw-evidence cutoff; `Auto` reports the
-lowest raw count among calls retained by the support slider, and moving that slider
+observation selector can add an absolute raw-evidence cutoff. `Auto` reports the
+lowest raw count among calls retained by the support and size filters. Choosing a
+numeric observation cutoff moves the support slider to the lowest normalized
+support among calls meeting that observation and size cutoff; moving the slider
 returns the selector to `Auto`. Reset restores the baseline PDF display set.
 
 Pooled breakpoint support-density plots use the configured plotted support metric

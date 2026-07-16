@@ -986,7 +986,7 @@ class CoreTests(unittest.TestCase):
             self.assertIn('value="10000">&ge; 10,000 bp', location_html)
             self.assertIn('value="100">&ge; 100', location_html)
             self.assertIn('value="200">&ge; 200', location_html)
-            self.assertIn("Moving the support slider returns this setting to Auto", location_html)
+            self.assertIn("Choosing a numeric observation cutoff moves the support slider", location_html)
             self.assertIn("group A", location_html)
 
             comparison = plots / "exact_deletion_comparison_chords.pdf"
@@ -1249,7 +1249,10 @@ class CoreTests(unittest.TestCase):
 
     def test_rainfall_size_filter_has_a_change_handler(self):
         js = (Path(__file__).resolve().parents[1] / "report_assets" / "circular_chords.js").read_text(encoding="utf-8")
-        self.assertIn("if (sizeFilter) sizeFilter.addEventListener('change', renderRainfall);", js)
+        self.assertIn("syncRainfallSupportToObservations();", js)
+        self.assertIn("syncChordSupportToObservations();", js)
+        self.assertIn("syncBreakpointSupportToObservations();", js)
+        self.assertIn("supportSliderValueForThreshold", js)
         self.assertIn("target.classList.contains('bar-plot-bar')", js)
 
     def test_bar_plots_have_hover_metadata(self):

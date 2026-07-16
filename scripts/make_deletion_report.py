@@ -930,7 +930,7 @@ def circular_location_plot_panel(path: str, title: str, caption: str, link_prefi
                 <button type="button" data-reset-controls>Reset to PDF view</button>
                 <div class="filter-status" data-filter-status></div>
               </div>
-              <div class="control-note">The support slider uses a logarithmic scale. The size filter keeps calls at or above the selected deleted-interval length. In Auto mode, the observation value reports the lowest raw count among calls passing both filters; choose a number to enforce an additional raw-evidence cutoff. Moving the support slider returns this setting to Auto. Controls affect the HTML view only.</div>
+              <div class="control-note">The support slider uses a logarithmic scale. The size filter keeps calls at or above the selected deleted-interval length. In Auto mode, the observation value reports the lowest raw count among calls passing both filters. Choosing a numeric observation cutoff moves the support slider to the lowest normalized support among calls meeting that observation and size cutoff; moving the support slider returns the observation setting to Auto. Controls affect the HTML view only.</div>
               <div id="{html.escape(target_id)}" class="plot-svg">{svg}</div>
             </div>
             """
@@ -1070,7 +1070,7 @@ def rainfall_location_plot_panel(path: str, title: str, caption: str, link_prefi
                 <button type="button" data-reset-rainfall-controls>Reset to all calls</button>
                 <div class="filter-status" data-rainfall-filter-status></div>
               </div>
-              <div class="control-note">The eligible call set loaded for this view contains {html.escape(call_count)} calls. By default this is the complete eligible set; an explicit configured cap, if used, is reflected in the count. The support slider uses a logarithmic normalized-support scale. The observation and size filters apply additional raw-evidence and deleted-interval-length cutoffs. Hover a point for its exact deletion ID, directed breakpoints, deleted size, raw and normalized support, arc annotation, origin status, and configured match. Controls affect the HTML view only.</div>
+              <div class="control-note">The eligible call set loaded for this view contains {html.escape(call_count)} calls. By default this is the complete eligible set; an explicit configured cap, if used, is reflected in the count. The support slider uses a logarithmic normalized-support scale. In Auto mode, the observation value reports the lowest raw count among calls passing the support and size filters. Choosing a numeric observation cutoff moves the support slider to the lowest normalized support among calls meeting that observation and size cutoff; moving the support slider returns the observation setting to Auto. Hover a point for its exact deletion ID, directed breakpoints, deleted size, raw and normalized support, arc annotation, origin status, and configured match. Controls affect the HTML view only.</div>
               <div id="{html.escape(target_id)}" class="plot-svg">{svg}</div>
             </div>
             """
@@ -1172,7 +1172,7 @@ def breakpoint_pair_plot_panel(path: str, title: str, caption: str, link_prefix:
                 <button type="button" data-reset-breakpoint-pair-controls>Reset to all calls</button>
                 <div class="filter-status" data-filter-status></div>
               </div>
-              <div class="control-note">The eligible call set contains {html.escape(point_count)} unique breakpoint pairs. The support, observation, and deleted-size controls affect the HTML view only. Hover a point to inspect its breakpoint pair, support, origin status, affected features, and the number of exact deletions represented by that pair.</div>
+      <div class="control-note">The eligible call set contains {html.escape(point_count)} unique breakpoint pairs. In Auto mode, the observation value reports the lowest raw count among pairs passing the support and size filters. Choosing a numeric observation cutoff moves the support slider to the lowest normalized support among pairs meeting that observation and size cutoff; moving the support slider returns the observation setting to Auto. The support, observation, and deleted-size controls affect the HTML view only. Hover a point to inspect its breakpoint pair, support, origin status, affected features, and the number of exact deletions represented by that pair.</div>
               <div id="{html.escape(target_id)}" class="plot-svg">{svg}</div>
             </div>
             """
