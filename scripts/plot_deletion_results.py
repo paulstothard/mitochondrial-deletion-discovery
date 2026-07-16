@@ -2142,14 +2142,6 @@ def save_breakpoint_pair_interactive_sidecar(
         fill_color = colors.to_hex(cmap(support_norm(norm_value)), keep_alpha=False)
         crosses_origin = bool(row.get("crosses_origin", False))
         attrs = {
-            "class": "breakpoint-pair-point",
-            "cx": f"{display_x * scale_x:.3f}",
-            "cy": f"{viewbox_height - display_y * scale_y:.3f}",
-            "r": f"{max(4.0, np.sqrt(float(marker_area) / np.pi)) * scale_x:.3f}",
-            "fill": fill_color,
-            "fill-opacity": "0.95",
-            "stroke": ORIGIN_OUTLINE_COLOR if crosses_origin else "#17202a",
-            "stroke-width": "1.0" if crosses_origin else "0.45",
             "data-group": group,
             "data-exact-deletion-id": row.get("exact_deletion_id", ""),
             "data-left-breakpoint": row.get("left_breakpoint", ""),
@@ -2168,7 +2160,22 @@ def save_breakpoint_pair_interactive_sidecar(
             "data-minor-arc-bp": row.get("minor_arc_deleted_bp", ""),
         }
         rendered = " ".join(f'{key}="{svg_attribute_value(value)}"' for key, value in attrs.items())
-        circles.append(f"<circle {rendered}/>")
+        cx = f"{display_x * scale_x:.3f}"
+        cy = f"{viewbox_height - display_y * scale_y:.3f}"
+        visible_radius = max(1.7, np.sqrt(float(marker_area) / np.pi)) * scale_x
+        hit_radius = max(4.0, np.sqrt(float(marker_area) / np.pi)) * scale_x
+        visible = (
+            f'<circle class="breakpoint-pair-visible-point" cx="{cx}" cy="{cy}" '
+            f'r="{visible_radius:.3f}" fill="{fill_color}" fill-opacity="0.86" '
+            f'stroke="{ORIGIN_OUTLINE_COLOR if crosses_origin else "#17202a"}" '
+            f'stroke-width="{"1.15" if crosses_origin else "0.45"}"/>'
+        )
+        hit_target = (
+            f'<circle class="breakpoint-pair-hit-target" cx="{cx}" cy="{cy}" '
+            f'r="{hit_radius:.3f}" fill="#285f8f" fill-opacity="0" '
+            'stroke="none" pointer-events="all"/>'
+        )
+        circles.append(f'<g class="breakpoint-pair-point" {rendered}>{visible}{hit_target}</g>')
     metadata = (
         f' data-plot-type="breakpoint-pair-map" data-group="{svg_attribute_value(group)}"'
         f' data-point-count="{len(circles)}" data-support-label="{svg_attribute_value(support_label)}"'
@@ -2178,7 +2185,8 @@ def save_breakpoint_pair_interactive_sidecar(
     style = (
         '<style>g[id^="breakpoint-pair-static-points-"]{display:none;}'
         '.breakpoint-pair-point{cursor:help;}'
-        '.breakpoint-pair-point:hover{stroke:#172b4d;stroke-width:2;}</style>'
+        '.breakpoint-pair-point:hover .breakpoint-pair-visible-point{'
+        'stroke:#172b4d;stroke-width:1.8;fill-opacity:1;}</style>'
     )
     svg = svg[: root_end + len(metadata) + 1] + style + svg[root_end + len(metadata) + 1 :]
     svg = svg.replace("</svg>", '<g id="breakpoint-pair-interactive-points">' + "".join(circles) + "</g></svg>")
@@ -2698,7 +2706,7 @@ def category_bar(matrix: pd.DataFrame, samples: pd.DataFrame, group_col: str, pa
         x="value",
         hue=group_key,
         hue_order=ordered_groups(samples, group_col) if group_key else None,
-        palette=palette(samples, group_col),
+        palette=palette(samples, group_col) if group_key else None,
         ax=ax,
     )
     ax.set_xlabel(ylabel)

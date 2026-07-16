@@ -1190,8 +1190,11 @@ class CoreTests(unittest.TestCase):
             self.assertIn('class="breakpoint-pair-point"', svg)
             self.assertIn('g[id^="breakpoint-pair-static-points-"]{display:none;}', svg)
             self.assertIn('id="breakpoint-pair-static-points-', svg)
-            self.assertIn('fill-opacity="0.95"', svg)
-            self.assertNotIn('fill-opacity="0"', svg)
+            self.assertIn('class="breakpoint-pair-visible-point"', svg)
+            self.assertIn('class="breakpoint-pair-hit-target"', svg)
+            self.assertIn('fill-opacity="0.86"', svg)
+            self.assertIn('fill-opacity="0"', svg)
+            self.assertIn('pointer-events="all"', svg)
             self.assertNotIn('id="breakpoint-pair-rank-1"', svg)
             self.assertIn('data-exact-deletion-id="mtDel_00900_00100_00200"', svg)
             self.assertIn('data-affected-features="MT-ND1+MT-CO1"', svg)
@@ -1329,6 +1332,27 @@ class CoreTests(unittest.TestCase):
             recurrence_svg = (root / "recurrence.svg").read_text(encoding="utf-8")
             self.assertIn('data-deletion-id="d1"', recurrence_svg)
             self.assertIn('data-value-label="Support"', recurrence_svg)
+
+    def test_category_bar_without_group_uses_default_seaborn_color(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            samples = pd.DataFrame({"sample": ["S1"]})
+            matrix = pd.DataFrame(
+                {
+                    "sample": ["S1"],
+                    "MT-ND1": [2],
+                    "MT-CO1": [1],
+                }
+            )
+
+            category_bar(matrix, samples, "", str(root / "features.pdf"), "Features", "Support")
+
+            feature_svg = (root / "features.svg").read_text(encoding="utf-8")
+            self.assertIn('data-category="MT-ND1"', feature_svg)
+            self.assertIn('data-category="MT-CO1"', feature_svg)
+            self.assertNotIn('data-group=', feature_svg)
 
     def test_ordination_has_sample_hover_metadata(self):
         import tempfile

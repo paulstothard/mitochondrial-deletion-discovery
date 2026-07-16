@@ -1213,6 +1213,7 @@ rule plot_results:
         exact_mds=f"{OUTDIR}/plots/exact_deletion_bray_curtis_mds.pdf",
         affected_pca=f"{OUTDIR}/plots/affected_feature_pca.pdf",
         affected_mds=f"{OUTDIR}/plots/affected_feature_bray_curtis_mds.pdf",
+        interactive_layers=f"{OUTDIR}/plots/.interactive_layers.complete",
     params:
         group=CFG["dataset"].get("primary_group_column", ""),
         rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
@@ -1245,7 +1246,8 @@ rule plot_results:
         "--rainfall-min-support-per-million {params.rainfall_min_support_per_million} "
         "--rainfall-max-points-per-group {params.rainfall_max_points_per_group} "
         "--endpoint-density-bin-size {params.endpoint_density_bin_size} "
-        "--endpoint-density-smooth-bins {params.endpoint_density_smooth_bins}"
+        "--endpoint-density-smooth-bins {params.endpoint_density_smooth_bins} "
+        "&& touch {output.interactive_layers}"
 
 
 rule plot_circular_chords:
@@ -1325,6 +1327,7 @@ rule plot_quality_profile:
         affected_pca=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/affected_feature_pca.pdf",
         affected_mds=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/affected_feature_bray_curtis_mds.pdf",
         gene_pair_pca=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/gene_pair_pca.pdf",
+        interactive_layers=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/.interactive_layers.complete",
     params:
         group=CFG["dataset"].get("primary_group_column", ""),
         rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
@@ -1357,7 +1360,8 @@ rule plot_quality_profile:
         "--rainfall-min-support-per-million {params.rainfall_min_support_per_million} "
         "--rainfall-max-points-per-group {params.rainfall_max_points_per_group} "
         "--endpoint-density-bin-size {params.endpoint_density_bin_size} "
-        "--endpoint-density-smooth-bins {params.endpoint_density_smooth_bins}"
+        "--endpoint-density-smooth-bins {params.endpoint_density_smooth_bins} "
+        "&& touch {output.interactive_layers}"
 
 
 rule plot_quality_profile_circular_chords:
@@ -1416,6 +1420,7 @@ rule make_report:
         per_gene=f"{OUTDIR}/analysis/per_gene_affected_burden.tsv",
         known_sequence_summary=f"{OUTDIR}/analysis/known_sequence_search_summary.tsv",
         known_sequence_hits=f"{OUTDIR}/analysis/known_sequence_search_hits.tsv",
+        interactive_layers=f"{OUTDIR}/plots/.interactive_layers.complete",
         plots=[
             f"{OUTDIR}/plots/deletion_burden_by_sample.pdf",
             f"{OUTDIR}/plots/unique_exact_deletions_by_sample.pdf",
@@ -1492,6 +1497,7 @@ rule make_quality_profile_report:
         per_gene=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/per_gene_affected_burden.tsv",
         known_sequence_summary=f"{OUTDIR}/analysis/known_sequence_search_summary.tsv",
         known_sequence_hits=f"{OUTDIR}/analysis/known_sequence_search_hits.tsv",
+        interactive_layers=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/.interactive_layers.complete",
         plots=quality_profile_plot_inputs,
     output:
         html=f"{OUTDIR}/quality/profiles/{{quality_profile}}/.report/index.html",
