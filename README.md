@@ -249,22 +249,21 @@ Main plots include:
 - total deletion burden by sample and group;
 - distinct exact deletions by sample and group;
 - age-by-treatment interaction plots when `age` and `treatment` metadata are present;
-- deletion size distributions, including log-y and size-restricted views;
+- deletion size distributions, including log-y and size-restricted views, with HTML bar/bin mouseovers for the size interval, group, plotted value, and contributing read count;
 - deletion rainfall plots shown as full-size per-group figures by left breakpoint, right breakpoint, and circular deleted-interval midpoint, with interactive support filtering and point mouseovers in the HTML report;
 - circular breakpoint-chord plots joining the directed breakpoints of each threshold-eligible exact deletion, with interactive normalized-support and observation controls in the HTML report;
 - circular exact-deletion group-comparison plots with replicate-significance, exploratory replicate-p, and technical read-depth views plus optional effect, support, and direction refinements;
 - breakpoint-pair support maps showing which deletion starts pair with which deletion ends;
 - group-split pooled breakpoint support-density plots showing where deletion endpoints accumulate, with binned plotted support split into left and right breakpoint bars behind a circular-smoothed total-support curve;
-- affected-feature normalized support and within-group proportions;
+- affected-feature normalized support and within-group proportions, with HTML bar mouseovers for category, group, and plotted value;
 - collapsed feature-impact classes;
-- per-gene affected burden;
-- group-colored exact deletion recurrence;
+- per-gene affected burden and group-colored exact deletion recurrence, with HTML bar mouseovers for the feature or exact deletion, group, and plotted value;
 - PCA and Bray-Curtis MDS for exact deletions and affected-feature categories, without static sample labels or centroids.
 - mitochondrial gene-pair PCA for datasets with the configured short-read RNA STAR evidence stream.
 
 Plot group order and colors are chosen once per report and reused across plots. For two-factor designs with `age` and `treatment`, groups are ordered by age and then treatment, with control-like groups first within each age. Control-like groups use subdued colors and treatment groups use red-family colors when possible.
 
-The deletion rainfall plots, breakpoint-pair support map, and pooled breakpoint support-density plots are visual displays, not separate calling steps. They use the same display rule. By default `plots.rainfall_min_support_per_million: 0.0` and `plots.rainfall_max_points_per_group: 0`, so all eligible exact deletions are loaded and low-abundance calls are not hidden by a normalized-support cutoff or a fixed 300-call cap. The HTML rainfall views provide a logarithmic minimum-support slider and mouseovers with the directed coordinates, support, affected features, arc context, and configured matches. The PDF remains a static all-call snapshot. The breakpoint-pair view retains support-rank numbers for cross-view comparison. These settings affect only the plots; the exact-deletion tables, matrices, comparisons, and read-list links retain the full analyzed call set subject to their own table-display filters.
+The deletion rainfall plots, breakpoint-pair support map, and pooled breakpoint support-density plots are visual displays, not separate calling steps. They use the same display rule. By default `plots.rainfall_min_support_per_million: 0.0` and `plots.rainfall_max_points_per_group: 0`, so all eligible exact deletions are loaded and low-abundance calls are not hidden by a normalized-support cutoff or a fixed 300-call cap. The HTML rainfall and breakpoint-pair views provide logarithmic minimum-support sliders and mouseovers with the directed coordinates, support, affected features, arc context, and configured matches. The PDF remains a static all-call snapshot. These settings affect only the plots; the exact-deletion tables, matrices, comparisons, and read-list links retain the full analyzed call set subject to their own table-display filters.
 
 In pooled breakpoint support-density plots, bar height and the smoothed curve use the configured plotted support metric (normally deletion support per million usable reads). A density bin's call count is the number of distinct exact-deletion calls contributing an endpoint, not the number of supporting reads. HTML hover metadata reports that call count, plotted support, and raw supporting observations separately; this distinction is important when one common deletion contributes many observations to a bin.
 

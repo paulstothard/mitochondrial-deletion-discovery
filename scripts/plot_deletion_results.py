@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import re
 import textwrap
 from pathlib import Path
@@ -133,6 +134,91 @@ def save(fig: plt.Figure, path: str) -> None:
     plt.close(fig)
 
 
+def save_bar_interactive(
+    fig: plt.Figure,
+    ax: plt.Axes,
+    path: str,
+    bars: list[dict[str, object]],
+) -> None:
+    """Save a bar-based plot with transparent SVG hit targets and metadata."""
+    ensure_parent(path)
+    fig.canvas.draw()
+    fig.savefig(path, bbox_inches="tight")
+    svg_path = Path(path).with_suffix(".svg")
+    temporary = svg_path.with_suffix(".tmp.svg")
+    # Keep the SVG in the figure's native coordinate system so hit targets
+    # remain aligned with the bars even when the PDF is tight-cropped.
+    fig.savefig(temporary, format="svg")
+    svg = temporary.read_text(encoding="utf-8")
+    temporary.unlink(missing_ok=True)
+    viewbox_match = re.search(
+        r'<svg\b[^>]*\bviewBox="([0-9.eE+-]+) ([0-9.eE+-]+) '
+        r'([0-9.eE+-]+) ([0-9.eE+-]+)"',
+        svg,
+    )
+    root_match = re.search(r"<svg\b[^>]*>", svg)
+    if not viewbox_match or not root_match:
+        svg_path.write_text(svg, encoding="utf-8")
+        plt.close(fig)
+        return
+    viewbox_width = float(viewbox_match.group(3))
+    viewbox_height = float(viewbox_match.group(4))
+    canvas_width, canvas_height = fig.canvas.get_width_height()
+    scale_x = viewbox_width / float(canvas_width)
+    scale_y = viewbox_height / float(canvas_height)
+    rectangles: list[str] = []
+    geometry_keys = {"x", "y", "width", "height"}
+    for bar in bars:
+        try:
+            x0 = float(bar.get("x", 0))
+            y0 = float(bar.get("y", 0))
+            width = float(bar.get("width", 0))
+            height = float(bar.get("height", 0))
+        except (TypeError, ValueError):
+            continue
+        if not all(np.isfinite(value) for value in (x0, y0, width, height)):
+            continue
+        if width <= 0 or height <= 0:
+            continue
+        x1 = x0 + width
+        y1 = y0 + height
+        display_left, display_bottom = ax.transData.transform((min(x0, x1), min(y0, y1)))
+        display_right, display_top = ax.transData.transform((max(x0, x1), max(y0, y1)))
+        left = min(display_left, display_right) * scale_x
+        right = max(display_left, display_right) * scale_x
+        top = viewbox_height - max(display_bottom, display_top) * scale_y
+        bottom = viewbox_height - min(display_bottom, display_top) * scale_y
+        if right <= left or bottom <= top:
+            continue
+        attrs = {
+            "class": "bar-plot-bar",
+            "x": f"{left:.3f}",
+            "y": f"{top:.3f}",
+            "width": f"{right - left:.3f}",
+            "height": f"{bottom - top:.3f}",
+            "fill": "#285f8f",
+            "fill-opacity": "0",
+            "stroke": "transparent",
+        }
+        for key, value in bar.items():
+            if key in geometry_keys:
+                continue
+            attrs[f"data-{str(key).replace('_', '-')}"] = value
+        rendered = " ".join(f'{key}="{svg_attribute_value(value)}"' for key, value in attrs.items())
+        rectangles.append(f"<rect {rendered}/>")
+    root_end = root_match.end() - 1
+    metadata = f' data-plot-type="bar-chart" data-bar-count="{len(rectangles)}"'
+    svg = svg[:root_end] + metadata + svg[root_end:]
+    style = (
+        '<style>.bar-plot-bar{cursor:help;pointer-events:all;}'
+        '.bar-plot-bar:hover{stroke:#172b4d;stroke-width:1.2;fill-opacity:.08;}</style>'
+    )
+    svg = svg[: root_end + len(metadata) + 1] + style + svg[root_end + len(metadata) + 1 :]
+    svg = svg.replace("</svg>", '<g id="bar-plot-interactive-bars">' + "".join(rectangles) + "</g></svg>")
+    svg_path.write_text(svg, encoding="utf-8")
+    plt.close(fig)
+
+
 def save_sample_points_interactive(
     fig: plt.Figure,
     ax: plt.Axes,
@@ -172,8 +258,9 @@ def save_sample_points_interactive(
         except (TypeError, ValueError, KeyError):
             continue
         display_x, display_y = ax.transData.transform((x_value, y_value))
+        is_group_mean = point.get("point_type") == "group_mean"
         attrs = {
-            "class": "sample-point",
+            "class": "group-mean-point" if is_group_mean else "sample-point",
             "cx": f"{display_x * scale_x:.3f}",
             "cy": f"{viewbox_height - display_y * scale_y:.3f}",
             "r": f"{max(5.5, np.sqrt(95.0 / np.pi)) * scale_x:.3f}",
@@ -181,6 +268,7 @@ def save_sample_points_interactive(
             "fill-opacity": "0",
             "stroke": "transparent",
             "data-sample": point.get("sample", ""),
+            "data-point-type": "group-mean" if is_group_mean else "sample",
             "data-group": point.get("group", ""),
             "data-x-label": point.get("x_label", "X"),
             "data-x-value": point.get("x_value", x_value),
@@ -191,6 +279,10 @@ def save_sample_points_interactive(
             "data-tissue": point.get("tissue", ""),
             "data-age": point.get("age", ""),
             "data-treatment": point.get("treatment", ""),
+            "data-sample-count": point.get("sample_count", ""),
+            "data-samples": point.get("samples", ""),
+            "data-ci-low": point.get("ci_low", ""),
+            "data-ci-high": point.get("ci_high", ""),
         }
         rendered = " ".join(f'{key}="{svg_attribute_value(value)}"' for key, value in attrs.items())
         circles.append(f"<circle {rendered}/>")
@@ -199,7 +291,7 @@ def save_sample_points_interactive(
         svg_attribute_value(plot_type), len(circles)
     )
     svg = svg[:root_end] + metadata + svg[root_end:]
-    style = '<style>.sample-point{cursor:help;}.sample-point:hover{stroke:#172b4d;stroke-width:2;fill-opacity:.16;}</style>'
+    style = '<style>.sample-point,.group-mean-point{cursor:help;}.sample-point:hover{stroke:#172b4d;stroke-width:2;fill-opacity:.16;}.group-mean-point:hover{stroke:#172b4d;stroke-width:2.5;fill-opacity:.18;}</style>'
     svg = svg[: root_end + len(metadata) + 1] + style + svg[root_end + len(metadata) + 1 :]
     svg = svg.replace("</svg>", '<g id="sample-interactive-points">' + "".join(circles) + "</g></svg>")
     svg_path.write_text(svg, encoding="utf-8")
@@ -896,6 +988,26 @@ def burden_plot(burden: pd.DataFrame, group_col: str, path: str, y: str, title: 
             linestyles="none",
             ax=ax,
         )
+        mean_points: list[dict[str, object]] = []
+        for group_index, group in enumerate(order):
+            rows = burden[burden[group_col].fillna("missing").astype(str) == str(group)].copy()
+            values = pd.to_numeric(rows[y], errors="coerce").dropna()
+            if values.empty:
+                continue
+            mean_points.append(
+                {
+                    "point_type": "group_mean",
+                    "group": group,
+                    "x": float(group_index),
+                    "y": float(values.mean()),
+                    "x_label": group_col,
+                    "x_value": group,
+                    "y_label": ylabel,
+                    "y_value": float(values.mean()),
+                    "sample_count": int(values.size),
+                    "samples": "; ".join(rows.loc[values.index, "sample"].astype(str)) if "sample" in rows.columns else "",
+                }
+            )
         ax.scatter([], [], color="#4c78a8", s=45, label="sample")
         ax.scatter([], [], color="black", marker="D", s=55, label="group mean" + (", 95% CI" if show_ci else ""))
         move_legend_outside(ax)
@@ -908,7 +1020,7 @@ def burden_plot(burden: pd.DataFrame, group_col: str, path: str, y: str, title: 
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     if sample_points:
-        save_sample_points_interactive(fig, ax, path, sample_points)
+        save_sample_points_interactive(fig, ax, path, sample_points + (mean_points if group_col and group_col in burden.columns else []))
     else:
         save(fig, path)
 
@@ -976,13 +1088,117 @@ def factorial_interaction_plot(burden: pd.DataFrame, path: str, y: str, title: s
         ax=ax,
         legend=False,
     )
+    mean_points: list[dict[str, object]] = []
+    mean_lines = [line for line in ax.lines if line.get_marker() == "D"]
+    summary = burden.groupby(["age", "treatment"], as_index=False)[y].mean()
+    for treatment_index, treatment in enumerate(treatments):
+        line = mean_lines[treatment_index] if treatment_index < len(mean_lines) else None
+        treatment_summary = summary[summary["treatment"].astype(str) == str(treatment)]
+        for age_index, age in enumerate(ages):
+            rows = burden[
+                (burden["age"].astype(str) == str(age))
+                & (burden["treatment"].astype(str) == str(treatment))
+            ].copy()
+            values = pd.to_numeric(rows[y], errors="coerce").dropna()
+            if values.empty:
+                continue
+            if line is not None and age_index < len(line.get_xdata()) and age_index < len(line.get_ydata()):
+                x_mean = float(line.get_xdata()[age_index])
+                y_mean = float(line.get_ydata()[age_index])
+            else:
+                fallback = treatment_summary[treatment_summary["age"].astype(str) == str(age)][y]
+                y_mean = float(pd.to_numeric(fallback, errors="coerce").iloc[0]) if not fallback.empty else float(values.mean())
+                offset = (treatment_index - (len(treatments) - 1) / 2) * 0.42 / max(1, len(treatments) - 1)
+                x_mean = float(age_index + offset)
+            mean_points.append(
+                {
+                    "point_type": "group_mean",
+                    "group": treatment,
+                    "x": x_mean,
+                    "y": y_mean,
+                    "x_label": "age",
+                    "x_value": age,
+                    "y_label": ylabel,
+                    "y_value": y_mean,
+                    "sample_count": int(values.size),
+                    "samples": "; ".join(rows["sample"].astype(str)) if "sample" in rows.columns else "",
+                    "age": age,
+                    "treatment": treatment,
+                }
+            )
     handles, labels = ax.get_legend_handles_labels()
     if handles:
         ax.legend(handles[: len(treatments)], labels[: len(treatments)], title="Treatment", loc="upper left", bbox_to_anchor=(1.02, 1), borderaxespad=0, frameon=True)
     ax.set_xlabel("Age")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
-    save_sample_points_interactive(fig, ax, path, sample_points)
+    save_sample_points_interactive(fig, ax, path, sample_points + mean_points)
+
+
+def horizontal_bar_overlays(
+    ax: plt.Axes,
+    grouped: pd.DataFrame,
+    category_col: str,
+    value_col: str,
+    value_label: str,
+    group_col: str | None = None,
+    group_order: list[str] | None = None,
+    metadata_columns: tuple[str, ...] = (),
+) -> list[dict[str, object]]:
+    """Build data-coordinate hit targets for grouped horizontal bars."""
+    category_order = [label.get_text() for label in ax.get_yticklabels()]
+    category_order = [label for label in category_order if label]
+    if not category_order:
+        category_order = grouped[category_col].astype(str).drop_duplicates().tolist()
+    groups = [str(value) for value in (group_order or [])]
+    bar_height = 0.8 / max(1, len(groups)) if groups else 0.8
+    overlays: list[dict[str, object]] = []
+    for category_index, display_category in enumerate(category_order):
+        rows = grouped[grouped[category_col].astype(str) == str(display_category)]
+        if groups:
+            row_by_group = {str(row.get(group_col, "")): row for _, row in rows.iterrows()}
+            for group_index, group in enumerate(groups):
+                row = row_by_group.get(group)
+                if row is None:
+                    continue
+                value = pd.to_numeric(pd.Series([row.get(value_col)]), errors="coerce").iloc[0]
+                if pd.isna(value):
+                    continue
+                record: dict[str, object] = {
+                    "x": 0,
+                    "y": category_index - 0.4 + group_index * bar_height,
+                    "width": float(value),
+                    "height": bar_height * 0.9,
+                    "category": row.get("category", display_category),
+                    "label": display_category,
+                    "group": group,
+                    "value": float(value),
+                    "value_label": value_label,
+                }
+                for column in metadata_columns:
+                    if column in row.index:
+                        record[column] = row.get(column)
+                overlays.append(record)
+        elif not rows.empty:
+            row = rows.iloc[0]
+            value = pd.to_numeric(pd.Series([row.get(value_col)]), errors="coerce").iloc[0]
+            if pd.isna(value):
+                continue
+            record = {
+                "x": 0,
+                "y": category_index - 0.4,
+                "width": float(value),
+                "height": 0.72,
+                "category": row.get("category", display_category),
+                "label": display_category,
+                "value": float(value),
+                "value_label": value_label,
+            }
+            for column in metadata_columns:
+                if column in row.index:
+                    record[column] = row.get(column)
+            overlays.append(record)
+    return overlays
 
 
 def size_distribution(reads: pd.DataFrame, samples: pd.DataFrame, group_col: str, path: str, title: str, weighted: bool, log_y: bool = False, size_min: int | None = None, size_max: int | None = None) -> None:
@@ -1032,7 +1248,50 @@ def size_distribution(reads: pd.DataFrame, samples: pd.DataFrame, group_col: str
     ax.set_xlabel("Deleted size (bp)")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
-    save(fig, path)
+    if hue:
+        groups = ordered_groups(samples, group_col)
+    else:
+        groups = [""]
+    edges = np.histogram_bin_edges(df["deleted_size"].to_numpy(dtype=float), bins=60)
+    histogram_by_bin: dict[int, dict[str, object]] = {}
+    baseline = float(ax.get_ylim()[0]) if log_y else 0.0
+    for group in groups:
+        subset = df if not hue else df[df[group_col].fillna("missing").astype(str) == str(group)]
+        values = subset["deleted_size"].to_numpy(dtype=float)
+        weights_for_group = subset["weight"].to_numpy(dtype=float) if weighted and "weight" in subset.columns else None
+        counts, bin_edges = np.histogram(values, bins=edges, weights=weights_for_group)
+        raw_counts, _ = np.histogram(values, bins=edges)
+        for index, count in enumerate(counts):
+            if not np.isfinite(count):
+                continue
+            record = histogram_by_bin.setdefault(
+                index,
+                {
+                    "x": float(bin_edges[index]),
+                    "y": baseline,
+                    "width": float(bin_edges[index + 1] - bin_edges[index]),
+                    "height": 0.0,
+                    "bin_start": float(bin_edges[index]),
+                    "bin_end": float(bin_edges[index + 1]),
+                    "group_values": [],
+                },
+            )
+            record["height"] = max(float(record["height"]), float(count - baseline))
+            record["group_values"].append(
+                {
+                    "group": group or "all groups",
+                    "value": float(count),
+                    "supportingReads": int(raw_counts[index]),
+                    "value_label": ylabel,
+                }
+            )
+    histogram_bars = []
+    for record in histogram_by_bin.values():
+        if float(record["height"]) <= 0:
+            continue
+        record["group_values"] = json.dumps(record["group_values"], separators=(",", ":"))
+        histogram_bars.append(record)
+    save_bar_interactive(fig, ax, path, histogram_bars)
 
 
 ORIGIN_OUTLINE_COLOR = "#00c8ff"
@@ -1841,9 +2100,11 @@ def save_breakpoint_pair_interactive_sidecar(
     pairs: pd.DataFrame,
     support_min: float,
     support_max: float,
+    support_norm: colors.Normalize,
+    cmap,
     support_label: str = "Deletion support",
 ) -> None:
-    """Write transparent point hit targets over the breakpoint-pair map SVG."""
+    """Write visible, filterable point targets over the breakpoint-pair map SVG."""
     if pairs.empty:
         return
     sidecar = Path(path).with_name(f"{Path(path).stem}__{safe_filename(group)}__interactive.svg")
@@ -1876,14 +2137,19 @@ def save_breakpoint_pair_interactive_sidecar(
         y_value = float(row["adjusted_right_breakpoint"])
         display_x, display_y = ax.transData.transform((x_value, y_value))
         affected = row.get("affected_feature_label", row.get("affected_features", ""))
+        support = float(row["_plot_support"])
+        norm_value = max(support, support_min) if support_min > 0 else support
+        fill_color = colors.to_hex(cmap(support_norm(norm_value)), keep_alpha=False)
+        crosses_origin = bool(row.get("crosses_origin", False))
         attrs = {
             "class": "breakpoint-pair-point",
             "cx": f"{display_x * scale_x:.3f}",
             "cy": f"{viewbox_height - display_y * scale_y:.3f}",
             "r": f"{max(4.0, np.sqrt(float(marker_area) / np.pi)) * scale_x:.3f}",
-            "fill": "#285f8f",
-            "fill-opacity": "0",
-            "stroke": "transparent",
+            "fill": fill_color,
+            "fill-opacity": "0.95",
+            "stroke": ORIGIN_OUTLINE_COLOR if crosses_origin else "#17202a",
+            "stroke-width": "1.0" if crosses_origin else "0.45",
             "data-group": group,
             "data-exact-deletion-id": row.get("exact_deletion_id", ""),
             "data-left-breakpoint": row.get("left_breakpoint", ""),
@@ -1895,7 +2161,7 @@ def save_breakpoint_pair_interactive_sidecar(
             "data-support-label": support_label,
             "data-pair-count": row.get("pair_count", ""),
             "data-rank": row.get("_support_rank", ""),
-            "data-crosses-origin": "yes" if bool(row.get("crosses_origin", False)) else "no",
+            "data-crosses-origin": "yes" if crosses_origin else "no",
             "data-affected-features": "" if pd.isna(affected) else affected,
             "data-arc-context": row.get("replication_arc_context", ""),
             "data-major-arc-bp": row.get("major_arc_deleted_bp", ""),
@@ -1909,7 +2175,11 @@ def save_breakpoint_pair_interactive_sidecar(
     )
     root_end = root_match.end() - 1
     svg = svg[:root_end] + metadata + svg[root_end:]
-    style = '<style>.breakpoint-pair-point{cursor:help;}.breakpoint-pair-point:hover{stroke:#172b4d;stroke-width:2;fill-opacity:.16;}</style>'
+    style = (
+        '<style>g[id^="breakpoint-pair-static-points-"]{display:none;}'
+        '.breakpoint-pair-point{cursor:help;}'
+        '.breakpoint-pair-point:hover{stroke:#172b4d;stroke-width:2;}</style>'
+    )
     svg = svg[: root_end + len(metadata) + 1] + style + svg[root_end + len(metadata) + 1 :]
     svg = svg.replace("</svg>", '<g id="breakpoint-pair-interactive-points">' + "".join(circles) + "</g></svg>")
     sidecar.write_text(svg, encoding="utf-8")
@@ -2183,11 +2453,11 @@ def location_rainfall(
         feature_ax = fig.add_subplot(grid[1, 0], sharex=ax)
         legend_ax = fig.add_subplot(grid[:, 1])
         scatter = None
+        cmap = location_support_colormap()
         if sub.empty:
             ax.text(0.5, 0.5, "No exact deletions meet the location plot display threshold", ha="center", va="center", wrap=True, transform=ax.transAxes)
             legend_ax.set_axis_off()
         else:
-            cmap = location_support_colormap()
             scatter = draw_location_points(
                 ax,
                 sub,
@@ -2293,13 +2563,22 @@ def breakpoint_pair_support_map(display_grouped: pd.DataFrame, groups: list[str]
                 "_plot_support", ascending=True, kind="mergesort"
             )
             cmap = location_support_colormap()
-            scatter = draw_location_points(ax, pairs, "left_breakpoint", "adjusted_right_breakpoint", support_min, support_max, support_norm, cmap, outline_crossing=True)
+            scatter = draw_location_points(
+                ax,
+                pairs,
+                "left_breakpoint",
+                "adjusted_right_breakpoint",
+                support_min,
+                support_max,
+                support_norm,
+                cmap,
+                outline_crossing=True,
+                artist_prefix="breakpoint-pair-static-points",
+            )
         y_max = max(float(genome_length), float(sub["adjusted_right_breakpoint"].max()) if not sub.empty else float(genome_length))
         y_axis_max = y_max + max(250.0, (y_max - 1.0) * 0.035)
         ax.set_xlim(0, genome_length)
         ax.set_ylim(0, y_axis_max)
-        if not sub.empty:
-            draw_location_rank_labels(ax, pairs, "left_breakpoint", "adjusted_right_breakpoint", support_min, support_max, support_norm, cmap)
         y_ticks, y_labels = adjusted_breakpoint_ticks(genome_length, y_axis_max)
         ax.set_yticks(y_ticks)
         ax.set_yticklabels(y_labels)
@@ -2325,6 +2604,7 @@ def breakpoint_pair_support_map(display_grouped: pd.DataFrame, groups: list[str]
                 show_origin_outline=bool(sub["crosses_origin"].any()),
                 origin_label="cyan outline =\norigin-crossing deletion",
                 note="Each dot is one unique left/right breakpoint pair.\nPoints above the horizontal line cross the origin.",
+                show_rank_note=False,
             )
         save_location_sidecar(fig, path, group)
         save_breakpoint_pair_interactive_sidecar(
@@ -2335,6 +2615,8 @@ def breakpoint_pair_support_map(display_grouped: pd.DataFrame, groups: list[str]
             pairs if not sub.empty else pd.DataFrame(),
             support_min,
             support_max,
+            support_norm,
+            cmap,
             support_label,
         )
         figures.append(fig)
@@ -2424,7 +2706,17 @@ def category_bar(matrix: pd.DataFrame, samples: pd.DataFrame, group_col: str, pa
     ax.set_title(title)
     if ax.legend_:
         move_legend_outside(ax, title=display_label(group_key))
-    save(fig, path)
+    overlays = horizontal_bar_overlays(
+        ax,
+        grouped,
+        "display_category",
+        "value",
+        ylabel,
+        group_col=group_key,
+        group_order=ordered_groups(samples, group_col) if group_key else None,
+        metadata_columns=("category",),
+    )
+    save_bar_interactive(fig, ax, path, overlays)
 
 
 def per_gene_plot(per_gene: pd.DataFrame, features: pd.DataFrame, group_col: str, path: str, ylabel: str) -> None:
@@ -2459,7 +2751,17 @@ def per_gene_plot(per_gene: pd.DataFrame, features: pd.DataFrame, group_col: str
     ax.set_title("Per-Gene Affected Burden")
     if ax.legend_:
         move_legend_outside(ax, title=display_label(group_key))
-    save(fig, path)
+    overlays = horizontal_bar_overlays(
+        ax,
+        grouped,
+        "feature",
+        "support_per_million_mt_reads",
+        ylabel,
+        group_col=group_key,
+        group_order=ordered_groups(per_gene, group_col) if group_key else None,
+        metadata_columns=("feature",),
+    )
+    save_bar_interactive(fig, ax, path, overlays)
 
 
 def exact_recurrence(clusters: pd.DataFrame, exact_mtpm: pd.DataFrame, samples: pd.DataFrame, group_col: str, path: str, ylabel: str) -> None:
@@ -2508,14 +2810,41 @@ def exact_recurrence(clusters: pd.DataFrame, exact_mtpm: pd.DataFrame, samples: 
             ax.legend(title=display_label(group_col), loc="upper left", bbox_to_anchor=(1.02, 1), borderaxespad=0, frameon=True)
             ax.set_ylabel("")
             ax.set_title("Exact Deletion Recurrence")
-            save(fig, path)
+            overlays: list[dict[str, object]] = []
+            bar_height = min(0.82 / max(1, len(group_order)), 0.22)
+            for row_index, label in enumerate(piv.index):
+                exact_id = next((key for key, value in label_map.items() if value == label), "")
+                for group_index, group in enumerate(group_order):
+                    value = float(piv.loc[label, group])
+                    overlays.append(
+                        {
+                            "x": 0,
+                            "y": row_index + offsets[group_index] - (bar_height * 0.9) / 2,
+                            "width": value,
+                            "height": bar_height * 0.9,
+                            "category": label,
+                            "deletion_id": exact_id,
+                            "group": group,
+                            "value": value,
+                            "value_label": ylabel,
+                        }
+                    )
+            save_bar_interactive(fig, ax, path, overlays)
             return
     fig, ax = plt.subplots(figsize=(12, max(5, 0.38 * len(df))))
     sns.barplot(data=df, y="label", x="total_supporting_reads", color="#4c78a8", ax=ax)
     ax.set_xlabel("Total supporting reads")
     ax.set_ylabel("")
     ax.set_title("Exact Deletion Recurrence")
-    save(fig, path)
+    overlays = horizontal_bar_overlays(
+        ax,
+        df,
+        "label",
+        "total_supporting_reads",
+        "Total supporting reads",
+        metadata_columns=("exact_deletion_id",),
+    )
+    save_bar_interactive(fig, ax, path, overlays)
 
 
 def ordination(matrix: pd.DataFrame, samples: pd.DataFrame, group_col: str, path: str, title: str, method: str) -> None:

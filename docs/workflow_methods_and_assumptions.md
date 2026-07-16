@@ -217,6 +217,14 @@ counts. Raw supporting observations and plotted support are reported as separate
 fields so high-support calls can be distinguished from bins containing many
 low-support calls.
 
+Bar-based summary plots also retain their static PDF appearance while the HTML
+SVG exposes hover metadata. Size-distribution bins report their size interval,
+group, plotted count or normalized support, and raw supporting-read count.
+Affected-feature, feature-impact, per-gene, and exact-recurrence bars report the
+displayed category or feature, group where applicable, and the exact plotted
+value. These values describe the aggregation used for that figure; they do not
+create additional deletion calls or change the underlying tables.
+
 Circular group-comparison views load delivered exact-deletion comparison rows with
 at least one supporting observation across the two compared groups. Zero-versus-zero
 rows remain in the complete comparison TSV but do not produce chords.

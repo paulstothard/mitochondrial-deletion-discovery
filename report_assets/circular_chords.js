@@ -69,6 +69,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
     renderRainfall();
   });
   if (observationFilter) observationFilter.addEventListener('change', renderRainfall);
+  if (sizeFilter) sizeFilter.addEventListener('change', renderRainfall);
   reset.addEventListener('click', () => {
     slider.value = '0';
     if (observationFilter) observationFilter.value = 'linked';
@@ -418,6 +419,47 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         addTooltipRow('Affected features', (target.dataset.affectedFeatures || 'NA').replaceAll('_', ' '));
         addTooltipRow('Origin-spanning', target.dataset.crossesOrigin || 'NA');
         addTooltipRow('Arc annotation', (target.dataset.arcContext || 'NA').replaceAll('_', ' '));
+      } else if (target.classList.contains('group-mean-point')) {
+        heading.textContent = `Group mean: ${target.dataset.group || 'NA'}`;
+        hoverTooltip.appendChild(heading);
+        addTooltipRow('Group', target.dataset.group || 'NA');
+        addTooltipRow(target.dataset.yLabel || 'Mean value', formatTooltipValue(target.dataset.yValue));
+        addTooltipRow('Samples contributing', formatTooltipNumber(target.dataset.sampleCount));
+        addTooltipRow('Sample IDs', target.dataset.samples || 'NA');
+        if (target.dataset.ciLow && target.dataset.ciHigh) {
+          addTooltipRow('95% CI', `${formatTooltipValue(target.dataset.ciLow)} to ${formatTooltipValue(target.dataset.ciHigh)}`);
+        }
+        if (target.dataset.age) addTooltipRow('Age', target.dataset.age);
+        if (target.dataset.treatment) addTooltipRow('Treatment', target.dataset.treatment);
+      } else if (target.classList.contains('bar-plot-bar')) {
+        const binStart = target.dataset.binStart;
+        const binEnd = target.dataset.binEnd;
+        heading.textContent = binStart && binEnd
+          ? `${formatTooltipValue(binStart)}-${formatTooltipValue(binEnd)} bp`
+          : (target.dataset.category || target.dataset.feature || target.dataset.label || 'Bar');
+        hoverTooltip.appendChild(heading);
+        if (target.dataset.group) addTooltipRow('Group', target.dataset.group);
+        if (target.dataset.category) addTooltipRow('Category', target.dataset.category.replaceAll('_', ' '));
+        if (target.dataset.feature) addTooltipRow('Feature', target.dataset.feature.replaceAll('_', ' '));
+        if (target.dataset.label && target.dataset.label !== target.dataset.category) addTooltipRow('Displayed label', target.dataset.label);
+        if (binStart && binEnd) addTooltipRow('Size interval', `${formatTooltipValue(binStart)} to ${formatTooltipValue(binEnd)} bp`);
+        if (target.dataset.deletionId) addTooltipRow('Exact deletion', target.dataset.deletionId);
+        if (target.dataset.groupValues) {
+          try {
+            const groupValues = JSON.parse(target.dataset.groupValues);
+            groupValues.forEach((entry) => {
+              const group = entry.group || 'Group';
+              addTooltipRow(`${group}: ${entry.valueLabel || 'Plotted value'}`, formatTooltipValue(entry.value));
+              const supportingReads = entry.supportingReads ?? entry.supporting_reads;
+              addTooltipRow(`${group}: supporting reads`, formatTooltipNumber(supportingReads));
+            });
+          } catch (error) {
+            addTooltipRow('Group values', target.dataset.groupValues);
+          }
+        } else {
+          if (target.dataset.supportingReads) addTooltipRow('Supporting reads', formatTooltipNumber(target.dataset.supportingReads));
+          if (target.dataset.value) addTooltipRow(target.dataset.valueLabel || 'Plotted value', formatTooltipValue(target.dataset.value));
+        }
       } else if (target.classList.contains('ordination-point') || target.classList.contains('sample-point')) {
         heading.textContent = target.dataset.sample || 'Sample';
         hoverTooltip.appendChild(heading);
@@ -474,7 +516,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
 
     document.addEventListener('pointerover', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .sample-point, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .sample-point, .group-mean-point, .bar-plot-bar, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       if (!target) return;
       populateTooltip(target);
@@ -486,10 +528,10 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
     });
     document.addEventListener('pointerout', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .sample-point, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .sample-point, .group-mean-point, .bar-plot-bar, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       const related = event.relatedTarget instanceof Element
-        ? event.relatedTarget.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .sample-point, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.relatedTarget.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .sample-point, .group-mean-point, .bar-plot-bar, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       if (target && target !== related) hoverTooltip.style.display = 'none';
     });

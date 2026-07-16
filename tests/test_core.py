@@ -37,6 +37,8 @@ from plot_deletion_results import (
     endpoint_density_pages,
     breakpoint_pair_support_map,
     burden_plot,
+    category_bar,
+    exact_recurrence,
     location_rainfall,
     location_features,
     mitochondrial_axis_bounds,
@@ -46,6 +48,8 @@ from plot_deletion_results import (
     support_scale_limits,
     rainfall_support_limits,
     rainfall_y_axis_min,
+    size_distribution,
+    per_gene_plot,
     ordination,
     factorial_interaction_plot,
     prepare_location_plot_data,
@@ -1184,10 +1188,14 @@ class CoreTests(unittest.TestCase):
             interactive = path.with_name("breakpoint_pair_support_map__treated__interactive.svg")
             svg = interactive.read_text(encoding="utf-8")
             self.assertIn('class="breakpoint-pair-point"', svg)
+            self.assertIn('g[id^="breakpoint-pair-static-points-"]{display:none;}', svg)
+            self.assertIn('id="breakpoint-pair-static-points-', svg)
+            self.assertIn('fill-opacity="0.95"', svg)
+            self.assertNotIn('fill-opacity="0"', svg)
+            self.assertNotIn('id="breakpoint-pair-rank-1"', svg)
             self.assertIn('data-exact-deletion-id="mtDel_00900_00100_00200"', svg)
             self.assertIn('data-affected-features="MT-ND1+MT-CO1"', svg)
             self.assertIn('data-rank="1"', svg)
-            self.assertIn('id="breakpoint-pair-rank-1"', svg)
             self.assertIn('data-plot-type="breakpoint-pair-map"', svg)
             self.assertIn('data-support-label="Normalized support"', svg)
 
@@ -1223,7 +1231,101 @@ class CoreTests(unittest.TestCase):
                 encoding="utf-8",
             )
             panel = plot_panel(str(path), "Burden", "Caption", "plots")
-            self.assertIn("Hover a sample point to inspect", panel)
+            self.assertIn("Hover a sample point or group-mean marker", panel)
+
+    def test_bar_report_panel_mentions_bar_hover(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "features.pdf"
+            path.write_bytes(b"pdf")
+            path.with_suffix(".svg").write_text(
+                '<svg data-plot-type="bar-chart" data-bar-count="1">'
+                '<rect class="bar-plot-bar" data-category="MT-ND1" data-value="2"/></svg>',
+                encoding="utf-8",
+            )
+            panel = plot_panel(str(path), "Features", "Caption", "plots")
+            self.assertIn("Hover a bar to inspect its category", panel)
+
+    def test_rainfall_size_filter_has_a_change_handler(self):
+        js = (Path(__file__).resolve().parents[1] / "report_assets" / "circular_chords.js").read_text(encoding="utf-8")
+        self.assertIn("if (sizeFilter) sizeFilter.addEventListener('change', renderRainfall);", js)
+        self.assertIn("target.classList.contains('bar-plot-bar')", js)
+
+    def test_bar_plots_have_hover_metadata(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            samples = pd.DataFrame(
+                {
+                    "sample": ["S1", "S2", "S3", "S4"],
+                    "group": ["control", "control", "deletion", "deletion"],
+                }
+            )
+            reads = pd.DataFrame(
+                {
+                    "sample": ["S1", "S1", "S2", "S3", "S4"],
+                    "deleted_size": [100, 200, 5100, 5200, 1000],
+                }
+            )
+            size_distribution(reads, samples, "group", str(root / "size.pdf"), "Size", weighted=True)
+            size_svg = (root / "size.svg").read_text(encoding="utf-8")
+            self.assertIn('data-plot-type="bar-chart"', size_svg)
+            self.assertIn('class="bar-plot-bar"', size_svg)
+            self.assertIn('data-bin-start=', size_svg)
+            self.assertIn('data-group-values=', size_svg)
+            self.assertIn('supportingReads', size_svg)
+            self.assertIn('control', size_svg)
+            self.assertIn('deletion', size_svg)
+
+            matrix = pd.DataFrame(
+                {
+                    "sample": ["S1", "S2", "S3", "S4"],
+                    "MT-ND1": [1, 2, 3, 4],
+                    "MT-CO1": [2, 1, 4, 3],
+                }
+            )
+            category_bar(matrix, samples, "group", str(root / "features.pdf"), "Features", "Support")
+            feature_svg = (root / "features.svg").read_text(encoding="utf-8")
+            self.assertIn('data-category="MT-ND1"', feature_svg)
+            self.assertIn('data-group="control"', feature_svg)
+            self.assertIn('data-value-label="Support"', feature_svg)
+
+            per_gene = pd.DataFrame(
+                {
+                    "sample": ["S1", "S2", "S3", "S4"],
+                    "group": ["control", "control", "deletion", "deletion"],
+                    "feature": ["MT-ND1"] * 4,
+                    "support_per_million_mt_reads": [1, 2, 3, 4],
+                }
+            )
+            per_gene_plot(per_gene, pd.DataFrame(), "group", str(root / "genes.pdf"), "Support")
+            gene_svg = (root / "genes.svg").read_text(encoding="utf-8")
+            self.assertIn('data-feature="MT-ND1"', gene_svg)
+            self.assertIn('class="bar-plot-bar"', gene_svg)
+
+            recurrence = pd.DataFrame(
+                {
+                    "exact_deletion_id": ["d1", "d2"],
+                    "left_breakpoint": [100, 200],
+                    "right_breakpoint": [300, 400],
+                    "deleted_size": [200, 200],
+                    "total_supporting_reads": [5, 4],
+                    "affected_feature_label": ["MT-ND1", "MT-CO1"],
+                }
+            )
+            exact_matrix = pd.DataFrame(
+                {
+                    "sample": ["S1", "S2", "S3", "S4"],
+                    "d1": [1, 2, 3, 4],
+                    "d2": [2, 1, 4, 3],
+                }
+            )
+            exact_recurrence(recurrence, exact_matrix, samples, "group", str(root / "recurrence.pdf"), "Support")
+            recurrence_svg = (root / "recurrence.svg").read_text(encoding="utf-8")
+            self.assertIn('data-deletion-id="d1"', recurrence_svg)
+            self.assertIn('data-value-label="Support"', recurrence_svg)
 
     def test_ordination_has_sample_hover_metadata(self):
         import tempfile
@@ -1278,6 +1380,8 @@ class CoreTests(unittest.TestCase):
             )
             burden_svg = burden_path.with_suffix(".svg").read_text(encoding="utf-8")
             self.assertEqual(burden_svg.count('class="sample-point"'), 4)
+            self.assertEqual(burden_svg.count('class="group-mean-point"'), 2)
+            self.assertIn('data-sample-count="2"', burden_svg)
             self.assertIn('data-sample="S1"', burden_svg)
             self.assertIn('data-biological-replicate="R1"', burden_svg)
 
@@ -1295,6 +1399,7 @@ class CoreTests(unittest.TestCase):
             )
             factorial_svg = factorial_path.with_suffix(".svg").read_text(encoding="utf-8")
             self.assertEqual(factorial_svg.count('class="sample-point"'), 4)
+            self.assertEqual(factorial_svg.count('class="group-mean-point"'), 4)
             self.assertIn('data-age="young"', factorial_svg)
             self.assertIn('data-treatment="deletion"', factorial_svg)
     def test_pooled_endpoint_density_tracks_left_and_right_support(self):

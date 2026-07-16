@@ -1261,7 +1261,9 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
         if 'data-plot-type="ordination"' in svg:
             hover_note = '<div class="control-note">Hover a sample to inspect its coordinates, group, replicate, layout, and tissue metadata.</div>'
         elif 'data-plot-type="sample-points"' in svg:
-            hover_note = '<div class="control-note">Hover a sample point to inspect its sample, group, plotted value, replicate, layout, and tissue metadata.</div>'
+            hover_note = '<div class="control-note">Hover a sample point or group-mean marker to inspect its value and supporting sample metadata.</div>'
+        elif 'data-plot-type="bar-chart"' in svg:
+            hover_note = '<div class="control-note">Hover a bar to inspect its category, group, interval, and plotted value.</div>'
         preview = f'{hover_note}<div class="plot-svg">{svg}</div>'
     else:
         preview = '<div class="plot-missing">Plot preview not available.</div>'
@@ -2269,6 +2271,7 @@ def stream_result_section(
     config: dict,
     plots_body: str,
     diagnostics_body: str,
+    comparison_plots_body: str,
     clusters: pd.DataFrame,
     burden: pd.DataFrame,
     exact_comp: pd.DataFrame,
@@ -2297,6 +2300,8 @@ def stream_result_section(
       {plots_body}
       <h3>Exploratory Ordination Plots</h3>
       {diagnostics_body}
+      <h3>Group Comparison Plots</h3>
+      {comparison_plots_body}
       {reference_support_explanation(sorted_clusters)}
       <h3>Result Tables</h3>
       {configured_target_matches_panel(clusters, junction_reads, read_list_dir)}
@@ -2423,7 +2428,7 @@ def main() -> None:
         "deletion_rainfall_midpoint.pdf": ("Deletion Rainfall: Circular Midpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same eligible exact deletions, placed by the circular midpoint of the deleted interval. Origin-spanning deletions are positioned by the midpoint along the deleted circular path rather than by a simple linear average. The HTML view provides support filtering and point details on hover."),
         "circular_breakpoint_chords_all.pdf": ("Circular Breakpoint Chords", f"{rainfall_display_definition(config, burden)} Each chord joins the alignment-directed left and right breakpoints of one exact deletion. The baseline PDF uses the rainfall display threshold and any explicitly configured count cap; the HTML view loads every threshold-eligible call and provides normalized-support and raw-observation controls. Chord color uses the same normalized-support scale as the rainfall plots."),
         "exact_deletion_comparison_chords.pdf": ("Exact Deletion Group Comparison Chords", "Each chord represents one exact deletion with at least one supporting observation in either group of a configured comparison. Chord color is the normalized mean-support difference between groups. The HTML views provide explicit replicate-level, exploratory, and technical read-depth presets plus optional display refinements."),
-        "breakpoint_pair_support_map.pdf": ("Breakpoint-Pair Support Map", f"{rainfall_display_definition(config, burden)} Each point is one unique left/right breakpoint pair after applying the same display threshold and optional per-group cap as the rainfall plots. Marker numbers use the same group-specific support ranks as the breakpoint-pair view. The x-axis is the left breakpoint; the y-axis is the right breakpoint, with origin-crossing right breakpoints shown above the horizontal genome-end line."),
+        "breakpoint_pair_support_map.pdf": ("Breakpoint-Pair Support Map", f"{rainfall_display_definition(config, burden)} Each point is one unique left/right breakpoint pair after applying the same display threshold and optional per-group cap as the rainfall plots. The x-axis is the left breakpoint; the y-axis is the right breakpoint, with origin-crossing right breakpoints shown above the horizontal genome-end line. Hover a point in the HTML view for its exact deletion details."),
         "pooled_breakpoint_support_density.pdf": ("Pooled Breakpoint Support Density", f"{rainfall_display_definition(config, burden)} This group-split view summarizes where deletion endpoints accumulate along the mitochondrial genome after pooling left and right breakpoints within each group. Stacked bars show the configured plotted support metric split by left versus right endpoint; the line is circular-smoothed total plotted support. Hover metadata separately reports distinct exact-deletion calls and raw supporting observations in each bin."),
         "pooled_breakpoint_support_density_capped.pdf": ("Pooled Breakpoint Support Density: Capped Scale", f"{rainfall_display_definition(config, burden)} This is the same group-split endpoint-density view with the y-axis capped so smaller secondary breakpoint hotspots remain visible when one region dominates. Hover metadata separately reports distinct exact-deletion calls and raw supporting observations in each bin."),
         "affected_feature_support.pdf": ("Affected Features: Normalized Abundance", f"This bar chart compares affected-feature categories after normalizing each sample {normalization_phrase(burden)}. Use this as the main abundance view when groups have different sequencing depth or mitochondrial read recovery."),
@@ -2451,7 +2456,6 @@ def main() -> None:
         "deletion_rainfall_right_breakpoint.pdf",
         "deletion_rainfall_midpoint.pdf",
         "circular_breakpoint_chords_all.pdf",
-        "exact_deletion_comparison_chords.pdf",
         "breakpoint_pair_support_map.pdf",
         "pooled_breakpoint_support_density.pdf",
         "pooled_breakpoint_support_density_capped.pdf",
@@ -2477,6 +2481,7 @@ def main() -> None:
         primary_plot_names.insert(2, "gene_pair_pca.pdf")
     primary_plots = select_plots(plots, primary_plot_names)
     secondary_plots = select_plots(plots, secondary_plot_names)
+    comparison_plots = select_plots(plots, ["exact_deletion_comparison_chords.pdf"])
 
     css = """
     body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2933; background: #f6f7f9; }
@@ -2669,7 +2674,7 @@ def main() -> None:
     <div id="caller-concordance">{method_concordance_section(config, args.report_profile, source_candidates, clusters, junction_reads)}</div>
     <div id="circular-checks">{circular_validation_section(config, clusters)}</div>
     <section id="qc"><div class="section-heading"><h2>Processing QC</h2><p>This table summarizes the first-pass read selection, mitochondrial remapping, and deletion-call denominators used by the report.</p></div>{table_html(qc, 300)}</section>
-    {stream_result_section("remap-stream", "Canonical Deletion Evidence Results", f"These results contain the canonical observations retained by the {args.report_profile or 'configured'} report profile and normalize support {normalization_phrase(burden, config)}. Caller-specific support remains visible in the exact-deletion table. These are coordinate-focused deletion-like evidence; review the earlier Analysis Assumptions And Limitations section before biological interpretation.", config, plot_sections(primary_plots), plot_sections(secondary_plots), clusters, burden, exact_comp, affected_comp, impact_comp, size_tests, size_bin_summary, factorial_model_summary, metadata_assoc, per_gene, junction_reads, read_list_dir, read_list_manifest)}
+    {stream_result_section("remap-stream", "Canonical Deletion Evidence Results", f"These results contain the canonical observations retained by the {args.report_profile or 'configured'} report profile and normalize support {normalization_phrase(burden, config)}. Caller-specific support remains visible in the exact-deletion table. These are coordinate-focused deletion-like evidence; review the earlier Analysis Assumptions And Limitations section before biological interpretation.", config, plot_sections(primary_plots), plot_sections(secondary_plots), plot_sections(comparison_plots), clusters, burden, exact_comp, affected_comp, impact_comp, size_tests, size_bin_summary, factorial_model_summary, metadata_assoc, per_gene, junction_reads, read_list_dir, read_list_manifest)}
   </main>
   <script>{js}</script>
 </body>
