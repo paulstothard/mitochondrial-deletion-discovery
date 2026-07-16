@@ -201,16 +201,17 @@ tracks use the same feature classes and colors: D-loop/control region coral,
 protein-coding genes green, rRNA cyan, and tRNA purple.
 
 The baseline chord PDFs use the rainfall support threshold and any explicitly
-configured per-group count cap. The HTML location view loads every call passing
-that support threshold before the count cap. Its logarithmic support slider controls
-minimum normalized support. Rainfall HTML views load the complete eligible call set
-by default and provide the same support slider plus point mouseovers; rainfall PDFs
-remain static all-call snapshots. The
-observation selector can add an absolute raw-evidence cutoff. `Auto` reports the
-lowest raw count among calls retained by the support and size filters. Choosing a
-numeric observation cutoff moves the support slider to the lowest normalized
-support among calls meeting that observation and size cutoff; moving the slider
-returns the selector to `Auto`. Reset restores the baseline PDF display set.
+configured per-group count cap. The HTML chord view loads every call passing that
+support threshold before the count cap. Its logarithmic support slider controls
+minimum normalized support, and its observation and deleted-size selectors add
+display-only cutoffs. Rainfall and breakpoint-pair HTML views load the complete
+eligible call set by default and provide the same three controls plus point
+mouseovers; their PDFs are static snapshots of the configured baseline display set.
+`Auto` reports the lowest raw count among calls retained by the support and size
+filters. Choosing a numeric observation cutoff moves the support slider to the
+lowest normalized support among calls meeting that observation and size cutoff;
+moving the slider returns the selector to `Auto`. Reset restores the baseline
+display set for the relevant view.
 
 Pooled breakpoint support-density plots use the configured plotted support metric
 for bar heights and circular smoothing. The endpoint-count values shown in HTML
@@ -224,8 +225,9 @@ SVG exposes hover metadata. Size-distribution bins report their size interval,
 group, plotted count or normalized support, and raw supporting-read count.
 Affected-feature, feature-impact, per-gene, and exact-recurrence bars report the
 displayed category or feature, group where applicable, and the exact plotted
-value. These values describe the aggregation used for that figure; they do not
-create additional deletion calls or change the underlying tables.
+value. Ordination points report sample, group, biological metadata, and plotted
+coordinates. These values describe the aggregation used for that figure; they do
+not create additional deletion calls or change the underlying tables.
 
 Circular group-comparison views load delivered exact-deletion comparison rows with
 at least one supporting observation across the two compared groups. Zero-versus-zero
