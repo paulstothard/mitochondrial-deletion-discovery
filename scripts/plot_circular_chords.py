@@ -28,6 +28,7 @@ from plot_deletion_results import (
     location_support_scale,
     normalize_deletion_ids,
     prepare_location_plot_data,
+    read_tsv_safe,
     read_yaml_safe,
     support_tick_label,
 )
@@ -677,7 +678,7 @@ def annotate_replication_arcs(calls: pd.DataFrame, config: dict, genome_length: 
 
 
 def prepare_comparison_calls(comparison: pd.DataFrame, config: dict, genome_length: int) -> pd.DataFrame:
-    required = {
+    required_columns = [
         "exact_deletion_id",
         "left_group",
         "right_group",
@@ -687,8 +688,10 @@ def prepare_comparison_calls(comparison: pd.DataFrame, config: dict, genome_leng
         "difference_per_million_mt_reads",
         "left_total_supporting_reads",
         "right_total_supporting_reads",
-    }
-    missing = sorted(required - set(comparison.columns))
+    ]
+    if comparison.empty and not len(comparison.columns):
+        comparison = pd.DataFrame(columns=required_columns)
+    missing = sorted(set(required_columns) - set(comparison.columns))
     if missing:
         raise ValueError(f"comparison table is missing required columns: {', '.join(missing)}")
     out = comparison.copy()
@@ -831,7 +834,7 @@ def main() -> None:
     observations = deduplicate_evidence_reads(normalize_deletion_ids(pd.read_csv(args.observations, sep="\t")))
     clusters = normalize_deletion_ids(pd.read_csv(args.clusters, sep="\t"))
     comparison_calls = prepare_comparison_calls(
-        normalize_deletion_ids(pd.read_csv(args.comparison, sep="\t")), config, args.genome_length
+        normalize_deletion_ids(read_tsv_safe(str(args.comparison))), config, args.genome_length
     )
 
     displayed, groups, support_label = prepare_location_plot_data(

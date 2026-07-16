@@ -64,7 +64,7 @@ from make_deletion_report import (
     write_configured_sequence_read_lists,
     write_exact_deletion_read_lists,
 )
-from plot_circular_chords import add_feature_ring, chord_path, circle_point
+from plot_circular_chords import add_feature_ring, chord_path, circle_point, prepare_comparison_calls
 from resolve_samples import derive_age, derive_replicate, derive_treatment, make_sample_id, validate_dataset_inputs
 from search_known_sequences import compiled_searches, match_multi_required, match_single, sample_from_fastq, scan_fastq_for_searches
 from select_whole_genome_mt_from_sam import classify_group
@@ -826,6 +826,25 @@ class CoreTests(unittest.TestCase):
         path = chord_path(100, 800, 0.9, genome_length)
         self.assertTrue((path.vertices[0] == circle_point(100, 0.9, genome_length)).all())
         self.assertTrue((path.vertices[-1] == circle_point(800, 0.9, genome_length)).all())
+
+    def test_circular_comparison_plot_accepts_a_zero_row_table(self):
+        calls = prepare_comparison_calls(pd.DataFrame(), {}, genome_length=1000)
+        self.assertTrue(calls.empty)
+        self.assertTrue(
+            {
+                "exact_deletion_id",
+                "left_group",
+                "right_group",
+                "left_breakpoint",
+                "right_breakpoint",
+                "deleted_size",
+                "difference_per_million_mt_reads",
+                "left_total_supporting_reads",
+                "right_total_supporting_reads",
+                "_absolute_difference",
+                "_total_supporting_observations",
+            }.issubset(calls.columns)
+        )
 
     def test_report_circular_chord_panels_include_interactive_controls(self):
         import tempfile
