@@ -1,0 +1,258 @@
+    document.querySelectorAll('[data-chord-controls]').forEach((controls) => {
+      const target = document.getElementById(controls.dataset.target);
+      const chords = Array.from(target.querySelectorAll('.deletion-chord'));
+      const slider = controls.querySelector('[data-support-slider]');
+      const supportOutput = controls.querySelector('[data-support-output]');
+      const observationFilter = controls.querySelector('[data-observation-filter]');
+      const linkedOption = controls.querySelector('[data-linked-option]');
+      const reset = controls.querySelector('[data-reset-controls]');
+      const status = controls.querySelector('[data-filter-status]');
+      const supports = chords.map((chord) => Number(chord.dataset.support)).filter(Number.isFinite);
+      const supportMin = Math.min(...supports);
+      const supportMax = Math.max(...supports);
+      let baselineMode = false;
+
+      function formatSupport(value) {
+        if (value >= 100) return value.toFixed(0);
+        if (value >= 10) return value.toFixed(1).replace(/\.0$/, '');
+        if (value >= 1) return value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+        return value.toPrecision(3).replace(/0+$/, '').replace(/\.$/, '');
+      }
+
+      function supportThreshold() {
+        const fraction = Number(slider.value) / Number(slider.max);
+        if (!Number.isFinite(supportMin) || !Number.isFinite(supportMax) || supportMin <= 0) return 0;
+        if (fraction <= 0 || supportMax <= supportMin) return supportMin;
+        return supportMin * Math.pow(supportMax / supportMin, fraction);
+      }
+
+      function render() {
+        const threshold = supportThreshold();
+        const linked = observationFilter.value === 'linked';
+        const supportEligible = chords.filter((chord) => Number(chord.dataset.support) >= threshold);
+        const candidateChords = baselineMode
+          ? chords.filter((chord) => chord.dataset.baseline === '1')
+          : supportEligible;
+        const candidateObservations = candidateChords.map((chord) => Number(chord.dataset.observations));
+        const linkedMinimum = candidateObservations.length ? Math.min(...candidateObservations) : 0;
+        const minimumObservations = linked ? linkedMinimum : Number(observationFilter.value);
+        let visible = 0;
+        chords.forEach((chord) => {
+          const passesPrimary = baselineMode
+            ? chord.dataset.baseline === '1'
+            : Number(chord.dataset.support) >= threshold;
+          const keep = passesPrimary && Number(chord.dataset.observations) >= minimumObservations;
+          chord.style.display = keep ? '' : 'none';
+          if (keep) visible += 1;
+        });
+        linkedOption.textContent = linkedMinimum > 0
+          ? `Auto (\u2265 ${linkedMinimum.toLocaleString()})`
+          : 'Auto (no calls pass)';
+        supportOutput.textContent = baselineMode
+          ? 'PDF baseline'
+          : (Number(slider.value) === 0 ? 'All loaded calls' : `>= ${formatSupport(threshold)}`);
+        const baselineNote = baselineMode ? ' (PDF baseline)' : '';
+        status.textContent = `Showing ${visible.toLocaleString()} of ${chords.length.toLocaleString()} loaded exact deletions${baselineNote}`;
+      }
+
+      slider.addEventListener('input', () => {
+        baselineMode = false;
+        observationFilter.value = 'linked';
+        render();
+      });
+      observationFilter.addEventListener('change', () => {
+        baselineMode = false;
+        render();
+      });
+      reset.addEventListener('click', () => {
+        baselineMode = true;
+        slider.value = '0';
+        observationFilter.value = 'linked';
+        render();
+      });
+      render();
+    });
+
+    document.querySelectorAll('[data-comparison-controls]').forEach((controls) => {
+      const target = document.getElementById(controls.dataset.target);
+      const chords = Array.from(target.querySelectorAll('.comparison-chord'));
+      const preset = controls.querySelector('[data-comparison-preset]');
+      const presetGuidance = controls.querySelector('[data-comparison-preset-guidance]');
+      const observationSlider = controls.querySelector('[data-comparison-observation-slider]');
+      const observationOutput = controls.querySelector('[data-comparison-observation-output]');
+      const differenceSlider = controls.querySelector('[data-comparison-difference-slider]');
+      const differenceOutput = controls.querySelector('[data-comparison-difference-output]');
+      const direction = controls.querySelector('[data-comparison-direction]');
+      const resetRefinements = controls.querySelector('[data-reset-comparison-refinements]');
+      const status = controls.querySelector('[data-comparison-status]');
+      const observationValues = chords.map((chord) => Number(chord.dataset.totalObservations)).filter(Number.isFinite);
+      const differenceValues = chords.map((chord) => Number(chord.dataset.absoluteDifference)).filter((value) => Number.isFinite(value) && value > 0);
+      const presetRules = {
+        'all': {field: null, threshold: 1},
+        'replicate-significant': {field: 'replicateQ', threshold: 0.05},
+        'replicate-suggestive': {field: 'replicateP', threshold: 0.05},
+        'depth-significant': {field: 'depthQ', threshold: 0.05},
+      };
+      const observationMin = Math.max(1, Math.min(...observationValues));
+      const observationMax = Math.max(observationMin, Math.max(...observationValues));
+      const differenceMin = differenceValues.length ? Math.min(...differenceValues) : 0;
+      const differenceMax = differenceValues.length ? Math.max(...differenceValues) : 0;
+
+      function formatComparisonNumber(value) {
+        if (!Number.isFinite(value)) return 'NA';
+        if (value === 0) return '0';
+        if (Math.abs(value) < 0.001) return value.toExponential(2);
+        return value.toLocaleString(undefined, {maximumSignificantDigits: 3});
+      }
+
+      function optionalNumber(value) {
+        if (value === undefined || value === null || String(value).trim() === '') return NaN;
+        return Number(value);
+      }
+
+      function logThreshold(slider, minimum, maximum, zeroMeansAll = false) {
+        const fraction = Number(slider.value) / Number(slider.max);
+        if (zeroMeansAll && fraction <= 0) return 0;
+        if (fraction >= 1) return maximum;
+        if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum <= 0 || maximum <= minimum) return minimum;
+        return minimum * Math.pow(maximum / minimum, fraction);
+      }
+
+      function renderComparison() {
+        const rule = presetRules[preset.value] || presetRules.all;
+        const observationThreshold = Math.ceil(logThreshold(observationSlider, observationMin, observationMax));
+        const differenceThreshold = logThreshold(differenceSlider, differenceMin, differenceMax, true);
+        let visible = 0;
+        chords.forEach((chord) => {
+          const statValue = rule.field === null ? 0 : optionalNumber(chord.dataset[rule.field]);
+          const passesStatistic = rule.field === null || (Number.isFinite(statValue) && statValue <= rule.threshold);
+          const change = Number(chord.dataset.difference);
+          const passesDirection = direction.value === 'both'
+            || (direction.value === 'right' && change > 0)
+            || (direction.value === 'left' && change < 0);
+          const keep = passesStatistic
+            && Number(chord.dataset.totalObservations) >= observationThreshold
+            && Number(chord.dataset.absoluteDifference) >= differenceThreshold
+            && passesDirection;
+          chord.style.display = keep ? '' : 'none';
+          if (keep) visible += 1;
+        });
+        observationOutput.textContent = `\u2265 ${observationThreshold.toLocaleString()}`;
+        differenceOutput.textContent = Number(differenceSlider.value) === 0
+          ? 'All differences'
+          : `\u2265 ${formatComparisonNumber(differenceThreshold)}`;
+        status.textContent = `Showing ${visible.toLocaleString()} of ${chords.length.toLocaleString()} exact deletion comparisons`;
+      }
+
+      function applyPreset() {
+        if (preset.value === 'replicate-significant') {
+          presetGuidance.textContent = 'Use this view for biological group conclusions. BH q \u2264 0.05 accounts for testing many exact deletions; an empty plot means none pass this threshold.';
+        } else if (preset.value === 'replicate-suggestive') {
+          presetGuidance.textContent = 'Shows unadjusted replicate-level p \u2264 0.05 results for exploration. These are not significant after correction unless they also pass the BH-q view.';
+        } else if (preset.value === 'depth-significant') {
+          presetGuidance.textContent = 'Shows BH-adjusted read-depth enrichment. This is technical read-count evidence and must not be described as biological-replicate significance.';
+        } else {
+          presetGuidance.textContent = 'Shows every delivered exact-deletion comparison. Use Replicate-significant for biological group conclusions.';
+        }
+        renderComparison();
+      }
+
+      [observationSlider, differenceSlider].forEach((slider) => slider.addEventListener('input', renderComparison));
+      direction.addEventListener('change', renderComparison);
+      preset.addEventListener('change', applyPreset);
+      resetRefinements.addEventListener('click', () => {
+        observationSlider.value = '0';
+        differenceSlider.value = '0';
+        direction.value = 'both';
+        renderComparison();
+      });
+      applyPreset();
+    });
+
+    const hoverTooltip = document.createElement('div');
+    hoverTooltip.className = 'hover-tooltip';
+    hoverTooltip.setAttribute('role', 'tooltip');
+    document.body.appendChild(hoverTooltip);
+
+    function addTooltipRow(label, value) {
+      const row = document.createElement('div');
+      row.className = 'hover-tooltip-row';
+      const prefix = document.createElement('span');
+      prefix.textContent = `${label}: `;
+      row.append(prefix, document.createTextNode(value));
+      hoverTooltip.appendChild(row);
+    }
+
+    function formatTooltipNumber(value) {
+      if (value === undefined || value === null || String(value).trim() === '') return 'NA';
+      const number = Number(value);
+      if (!Number.isFinite(number)) return 'NA';
+      if (number !== 0 && Math.abs(number) < 0.001) return number.toExponential(3);
+      return number.toLocaleString(undefined, {maximumSignificantDigits: 4});
+    }
+
+    function populateTooltip(target) {
+      hoverTooltip.replaceChildren();
+      const heading = document.createElement('strong');
+      if (target.classList.contains('comparison-chord')) {
+        heading.textContent = `Comparison rank ${target.dataset.rank}: ${target.dataset.deletionId}`;
+        hoverTooltip.appendChild(heading);
+        addTooltipRow('Directed breakpoints', `${Number(target.dataset.leftBreakpoint).toLocaleString()} to ${Number(target.dataset.rightBreakpoint).toLocaleString()}`);
+        addTooltipRow('Deleted interval', `${Number(target.dataset.deletedSize).toLocaleString()} bp`);
+        addTooltipRow(`${target.dataset.leftGroup} mean`, formatTooltipNumber(target.dataset.leftMean));
+        addTooltipRow(`${target.dataset.rightGroup} mean`, formatTooltipNumber(target.dataset.rightMean));
+        addTooltipRow(`${target.dataset.rightGroup} minus ${target.dataset.leftGroup}`, formatTooltipNumber(target.dataset.difference));
+        addTooltipRow('Supporting observations', `${Number(target.dataset.leftObservations).toLocaleString()} / ${Number(target.dataset.rightObservations).toLocaleString()}`);
+        addTooltipRow('Samples with signal', formatTooltipNumber(target.dataset.samplesWithSignal));
+        addTooltipRow('Replicate p / BH q', `${formatTooltipNumber(target.dataset.replicateP)} / ${formatTooltipNumber(target.dataset.replicateQ)}`);
+        addTooltipRow('Read-depth Fisher p / BH q', `${formatTooltipNumber(target.dataset.depthP)} / ${formatTooltipNumber(target.dataset.depthQ)}`);
+        addTooltipRow('Arc annotation', target.dataset.arcContext.replaceAll('_', ' '));
+        if (target.dataset.knownDeletion) addTooltipRow('Known-deletion match', target.dataset.knownDeletion.replaceAll('_', ' '));
+      } else if (target.classList.contains('deletion-chord')) {
+        heading.textContent = `Rank ${target.dataset.rank}: ${target.dataset.deletionId}`;
+        hoverTooltip.appendChild(heading);
+        addTooltipRow('Directed breakpoints', `${Number(target.dataset.leftBreakpoint).toLocaleString()} to ${Number(target.dataset.rightBreakpoint).toLocaleString()}`);
+        addTooltipRow('Deleted interval', `${Number(target.dataset.deletedSize).toLocaleString()} bp`);
+        addTooltipRow('Normalized support', Number(target.dataset.support).toLocaleString(undefined, {maximumSignificantDigits: 4}));
+        addTooltipRow('Supporting observations', Number(target.dataset.observations).toLocaleString());
+        addTooltipRow('Arc annotation', target.dataset.arcContext.replaceAll('_', ' '));
+        addTooltipRow('Major/minor arc bp', `${Number(target.dataset.majorArcBp).toLocaleString()} / ${Number(target.dataset.minorArcBp).toLocaleString()}`);
+      } else {
+        heading.textContent = target.dataset.featureName;
+        hoverTooltip.appendChild(heading);
+        addTooltipRow('Feature type', target.dataset.featureType);
+        addTooltipRow('Coordinates', `${Number(target.dataset.featureStart).toLocaleString()} to ${Number(target.dataset.featureEnd).toLocaleString()}`);
+      }
+    }
+
+    function positionTooltip(event) {
+      const gap = 14;
+      let left = event.clientX + gap;
+      let top = event.clientY + gap;
+      if (left + hoverTooltip.offsetWidth > window.innerWidth - 8) left = event.clientX - hoverTooltip.offsetWidth - gap;
+      if (top + hoverTooltip.offsetHeight > window.innerHeight - 8) top = event.clientY - hoverTooltip.offsetHeight - gap;
+      hoverTooltip.style.left = `${Math.max(8, left)}px`;
+      hoverTooltip.style.top = `${Math.max(8, top)}px`;
+    }
+
+    document.addEventListener('pointerover', (event) => {
+      const target = event.target instanceof Element
+        ? event.target.closest('.deletion-chord, .comparison-chord, .mt-feature')
+        : null;
+      if (!target) return;
+      populateTooltip(target);
+      hoverTooltip.style.display = 'block';
+      positionTooltip(event);
+    });
+    document.addEventListener('pointermove', (event) => {
+      if (hoverTooltip.style.display === 'block') positionTooltip(event);
+    });
+    document.addEventListener('pointerout', (event) => {
+      const target = event.target instanceof Element
+        ? event.target.closest('.deletion-chord, .comparison-chord, .mt-feature')
+        : null;
+      const related = event.relatedTarget instanceof Element
+        ? event.relatedTarget.closest('.deletion-chord, .comparison-chord, .mt-feature')
+        : null;
+      if (target && target !== related) hoverTooltip.style.display = 'none';
+    });

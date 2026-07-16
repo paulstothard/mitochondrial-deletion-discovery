@@ -30,6 +30,18 @@ references:
     mt_reference_accession: NC_012920.1
     mt_contig_names: [MT, chrM, MTDNA]
     mt_length: 16569
+    replication_arc_boundary_basis: MitoBreak analytical major/minor arc convention using O_H=407 and O_L=5747 on the rCRS coordinate system.
+    replication_arcs:
+      - name: minor_arc
+        display_name: Minor arc
+        start: 408
+        end: 5746
+        boundary_definition: Forward circular interval after the configured O_H landmark at 407 through the base before the configured O_L landmark at 5747 on NC_012920.1.
+      - name: major_arc
+        display_name: Major arc
+        start: 5747
+        end: 407
+        boundary_definition: Complementary forward circular interval from the configured O_L landmark at 5747 through the configured O_H landmark at 407 on NC_012920.1.
 
 mapping:
   first_pass_read_selection: whole_genome_mt_best

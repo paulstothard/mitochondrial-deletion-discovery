@@ -28,6 +28,8 @@ PLOTS = [
     "deletion_rainfall_left_breakpoint.pdf",
     "deletion_rainfall_right_breakpoint.pdf",
     "deletion_rainfall_midpoint.pdf",
+    "circular_breakpoint_chords_all.pdf",
+    "exact_deletion_comparison_chords.pdf",
     "breakpoint_pair_support_map.pdf",
     "pooled_breakpoint_support_density.pdf",
     "pooled_breakpoint_support_density_capped.pdf",
@@ -49,6 +51,10 @@ TABLES = [
     ("junctions/ambiguous_direction_reads.tsv", "tables/ambiguous_direction_reads.tsv"),
     ("analysis/deletion_burden.tsv", "tables/deletion_burden.tsv"),
     ("analysis/exact_deletion_comparison.tsv", "tables/exact_deletion_comparison.tsv"),
+    ("analysis/circular_chord_displayed_deletions.tsv", "tables/circular_chord_displayed_deletions.tsv"),
+    ("analysis/circular_chord_interactive_deletions.tsv", "tables/circular_chord_interactive_deletions.tsv"),
+    ("analysis/circular_chord_exact_deletion_comparisons.tsv", "tables/circular_chord_exact_deletion_comparisons.tsv"),
+    ("analysis/circular_chord_summary.tsv", "tables/circular_chord_summary.tsv"),
     ("analysis/affected_feature_comparison.tsv", "tables/affected_feature_comparison.tsv"),
     ("analysis/feature_impact_class_comparison.tsv", "tables/feature_impact_class_comparison.tsv"),
     ("analysis/deletion_size_distribution_tests.tsv", "tables/deletion_size_distribution_tests.tsv"),
@@ -76,6 +82,9 @@ COLUMN_DEFINITIONS = {
     "direction_status": "Whether directed evidence is accepted or conflicts with a reciprocal alignment hypothesis.",
     "rotation_agreement": "Whether evidence for the exact deletion was recorded from one or multiple reference rotations.",
     "affected_feature_label": "Deterministic genomic-order label of reference features overlapped by the directed deleted interval.",
+    "replication_arc_context": "Reference-specific major/minor arc context of the directed deleted interval: major_arc_only, minor_arc_only, or major_and_minor_arcs.",
+    "minor_arc_deleted_bp": "Number of deleted reference bases overlapping the configured mitochondrial minor arc.",
+    "major_arc_deleted_bp": "Number of deleted reference bases overlapping the configured mitochondrial major arc.",
     "total_supporting_reads": "Distinct sample/read evidence count after deduplication across reference rotations.",
     "local_split_support_fraction": "Split support divided by split support plus minimum local reference-spanning support; not automatically heteroplasmy.",
     "normalization_denominator": "Configured population of reads used for per-million normalization.",
@@ -104,7 +113,16 @@ def column_category(column: str) -> str:
         return "evidence_or_count"
     if "normalization" in column or "per_million" in column:
         return "normalization"
-    if column in {"affected_feature_label", "affected_features", "fully_removed_features", "partially_overlapped_features", "feature_impact_class"}:
+    if column in {
+        "affected_feature_label",
+        "affected_features",
+        "fully_removed_features",
+        "partially_overlapped_features",
+        "feature_impact_class",
+        "replication_arc_context",
+        "minor_arc_deleted_bp",
+        "major_arc_deleted_bp",
+    }:
         return "derived_annotation"
     return "workflow_or_analysis_field"
 
@@ -153,6 +171,8 @@ PLOT_EXPLANATIONS = {
     "deletion_rainfall_left_breakpoint.pdf": "Location-size plot of post-remap deletion calls placed by alignment-directed left breakpoint; markers show group-specific support ranks when space permits.",
     "deletion_rainfall_right_breakpoint.pdf": "Location-size plot of post-remap deletion calls placed by alignment-directed right breakpoint; markers show group-specific support ranks when space permits.",
     "deletion_rainfall_midpoint.pdf": "Location-size plot of post-remap deletion calls placed by circular deleted-interval midpoint; markers show group-specific support ranks when space permits.",
+    "circular_breakpoint_chords_all.pdf": "Circular view joining the alignment-directed breakpoints of rainfall-eligible exact deletions; HTML reports provide support controls and feature/deletion mouseovers.",
+    "exact_deletion_comparison_chords.pdf": "Circular view of exact-deletion group comparisons; HTML reports provide statistical presets, effect/support refinements, and comparison mouseovers.",
     "breakpoint_pair_support_map.pdf": "Breakpoint-pair support map showing which deletion starts pair with which deletion ends; marker ranks match the rainfall plots within each group.",
     "pooled_breakpoint_support_density.pdf": "Group-split pooled breakpoint endpoint support density using stacked binned left/right endpoint bars and a circular-smoothed pooled support curve.",
     "pooled_breakpoint_support_density_capped.pdf": "Group-split pooled breakpoint endpoint support density with a capped y-axis to reveal secondary endpoint hotspots.",
@@ -176,6 +196,10 @@ TABLE_EXPLANATIONS = {
     "data_dictionary.tsv": "Table and column inventory with field categories and definitions.",
     "deletion_burden.tsv": "Per-sample deletion burden, unique exact deletion count, and the configured normalization denominator.",
     "exact_deletion_comparison.tsv": "Group comparisons for recurrent exact deletions.",
+    "circular_chord_displayed_deletions.tsv": "Exact deletions included in the baseline circular chord PDFs after the rainfall display threshold and count cap.",
+    "circular_chord_interactive_deletions.tsv": "All exact deletions loaded into the interactive circular chord view after the rainfall support threshold but before its count cap.",
+    "circular_chord_exact_deletion_comparisons.tsv": "Exact-deletion comparison rows loaded into the interactive group-comparison chord views.",
+    "circular_chord_summary.tsv": "Per-group baseline and interactive circular chord call counts and support ranges.",
     "affected_feature_comparison.tsv": "Group comparisons after exact deletions are summed by deterministic affected-feature label.",
     "feature_impact_class_comparison.tsv": "Group comparisons for broad collapsed feature-impact classes.",
     "deletion_size_distribution_tests.tsv": "Distribution-level tests comparing deletion sizes between groups.",
@@ -556,10 +580,14 @@ def main() -> None:
             "breakpoint_pair_support_map.pdf",
             "pooled_breakpoint_support_density.pdf",
             "pooled_breakpoint_support_density_capped.pdf",
+            "circular_breakpoint_chords_all.pdf",
+            "exact_deletion_comparison_chords.pdf",
         }:
             for sidecar in sorted((root / "plots").glob(f"{Path(plot).stem}__*.pdf")):
                 copy_if_exists(sidecar, out / "plots" / sidecar.name, copied)
                 copy_if_exists(sidecar.with_suffix(".svg"), out / "plots" / sidecar.with_suffix(".svg").name, copied)
+            for sidecar_svg in sorted((root / "plots").glob(f"{Path(plot).stem}__*.svg")):
+                copy_if_exists(sidecar_svg, out / "plots" / sidecar_svg.name, copied)
     for src_rel, dst_rel in TABLES:
         copy_if_exists(root / src_rel, out / dst_rel, copied)
     for matrix in MATRICES:

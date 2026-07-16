@@ -12,7 +12,14 @@ import pandas as pd
 import yaml
 
 from common import deep_update, ensure_parent
-from circular_deletions import circular_distance, configured_deletion_targets, pos_within_circular_window
+from circular_deletions import (
+    circular_closed_interval_pieces,
+    circular_distance,
+    configured_deletion_targets,
+    configured_replication_arcs,
+    interval_length,
+    pos_within_circular_window,
+)
 
 
 READ_LIST_COLUMNS = [
@@ -689,6 +696,33 @@ def configured_region_table(config: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def configured_replication_arc_table(config: dict) -> pd.DataFrame:
+    species = str((config.get("dataset", {}) or {}).get("species", ""))
+    reference = (config.get("references", {}) or {}).get(species, {}) or {}
+    mt_length = int(reference.get("mt_length", 0) or 0)
+    rows = []
+    for item in configured_replication_arcs(config):
+        try:
+            start = int(item["start"])
+            end = int(item["end"])
+            length = interval_length(circular_closed_interval_pieces(start, end, mt_length))
+        except (KeyError, TypeError, ValueError):
+            start = item.get("start", "")
+            end = item.get("end", "")
+            length = ""
+        rows.append(
+            {
+                "arc_name": item.get("display_name", item.get("name", "")),
+                "start": start,
+                "end": end,
+                "wraps_coordinate_origin": "yes" if isinstance(start, int) and isinstance(end, int) and start > end else "no",
+                "length_bp": length,
+                "boundary_definition": item.get("boundary_definition", ""),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def apply_display_aliases_to_features(features: pd.DataFrame, config: dict) -> pd.DataFrame:
     if features.empty:
         return features.copy()
@@ -823,7 +857,156 @@ def section(title: str, text: str, body: str) -> str:
     """
 
 
+def svg_data_attribute(svg: str, name: str, fallback: str = "") -> str:
+    match = re.search(rf"<svg\b[^>]*\bdata-{re.escape(name)}=(['\"])(.*?)\1", svg, flags=re.DOTALL)
+    return html.unescape(match.group(2)) if match else fallback
+
+
+def chord_target_id(prefix: str, value: str) -> str:
+    token = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
+    return f"{prefix}__{token or 'all'}"
+
+
+def circular_location_plot_panel(path: str, title: str, caption: str, link_prefix: str) -> str:
+    aggregate = Path(path)
+    interactive_svgs = sorted(aggregate.parent.glob(f"{aggregate.stem}__*__interactive.svg"))
+    if not interactive_svgs:
+        return ""
+    subpanels = []
+    for svg_path in interactive_svgs:
+        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        fallback_group = svg_path.stem.removeprefix(f"{aggregate.stem}__").removesuffix("__interactive")
+        group = svg_data_attribute(svg, "group", fallback_group.replace("_", " "))
+        target_id = chord_target_id(f"interactive__{aggregate.stem}", group)
+        static_pdf = svg_path.with_name(svg_path.name.replace("__interactive.svg", ".pdf"))
+        subpanels.append(
+            f"""
+            <div class="plot-subpanel">
+              <div class="plot-title-row">
+                <h4>{html.escape(group)}</h4>
+                <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(static_pdf.name)}">Open baseline PDF</a>
+              </div>
+              <div class="chord-controls" data-chord-controls data-target="{html.escape(target_id)}">
+                <label class="slider-control">
+                  <span>Minimum normalized support</span>
+                  <input type="range" min="0" max="1000" step="1" value="0" data-support-slider>
+                  <output data-support-output>All loaded calls</output>
+                </label>
+                <label class="observation-control">
+                  <span>Minimum supporting observations</span>
+                  <select data-observation-filter>
+                    <option value="linked" data-linked-option>Auto</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                  </select>
+                </label>
+                <button type="button" data-reset-controls>Reset to PDF view</button>
+                <div class="filter-status" data-filter-status></div>
+              </div>
+              <div class="control-note">The support slider uses a logarithmic scale. In Auto mode, the observation value reports the lowest raw count among calls passing the support filter; choose a number to enforce an additional raw-evidence cutoff. Moving the support slider returns this setting to Auto. Controls affect the HTML view only.</div>
+              <div id="{html.escape(target_id)}" class="plot-svg">{svg}</div>
+            </div>
+            """
+        )
+    return f"""
+    <article class="plot-panel circular_breakpoint_chords_all">
+      <div class="plot-title-row">
+        <h3>{html.escape(title)}</h3>
+        <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(aggregate.name)}">Open multipage baseline PDF</a>
+      </div>
+      <p>{html.escape(caption)}</p>
+      <div class="control-guidance"><strong>Using location controls</strong><p>Use normalized support to compare evidence across samples or datasets with different usable-read depths. Auto reports the lowest raw observation count among calls retained by the support slider; choose a fixed observation count only when an additional absolute-evidence requirement is intended.</p></div>
+      {''.join(subpanels)}
+    </article>
+    """
+
+
+def circular_comparison_plot_panel(path: str, title: str, caption: str, link_prefix: str) -> str:
+    aggregate = Path(path)
+    sidecar_svgs = sorted(aggregate.parent.glob(f"{aggregate.stem}__*.svg"))
+    if not sidecar_svgs:
+        return ""
+    subpanels = []
+    for svg_path in sidecar_svgs:
+        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        left_group = svg_data_attribute(svg, "left-group", "left group")
+        right_group = svg_data_attribute(svg, "right-group", "right group")
+        target_id = chord_target_id(f"interactive__{aggregate.stem}", svg_path.stem)
+        subpanels.append(
+            f"""
+            <div class="plot-subpanel comparison-plot-panel">
+              <div class="plot-title-row">
+                <h4>{html.escape(right_group)} compared with {html.escape(left_group)}</h4>
+                <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(svg_path.with_suffix('.pdf').name)}">Open baseline PDF</a>
+              </div>
+              <p>Each chord represents one exact deletion comparison. Color shows the normalized mean-support difference ({html.escape(right_group)} minus {html.escape(left_group)}); the controls use statistics and support fields from the exact-deletion comparison table.</p>
+              <div class="comparison-filter-block" data-comparison-controls data-target="{html.escape(target_id)}">
+                <div class="comparison-primary-controls">
+                  <label class="select-control">
+                    <span>Comparison view</span>
+                    <select data-comparison-preset>
+                      <option value="all">All comparisons</option>
+                      <option value="replicate-significant">Replicate-significant (BH q &le; 0.05)</option>
+                      <option value="replicate-suggestive">Replicate p &le; 0.05 (exploratory)</option>
+                      <option value="depth-significant">Read-depth enriched (BH q &le; 0.05; technical)</option>
+                    </select>
+                  </label>
+                  <div class="filter-status" data-comparison-status></div>
+                </div>
+                <div class="preset-guidance" data-comparison-preset-guidance></div>
+                <details class="advanced-comparison-filters">
+                  <summary>Optional display refinements</summary>
+                  <div class="comparison-controls">
+                    <label class="slider-control">
+                      <span>Minimum total supporting observations</span>
+                      <input type="range" min="0" max="1000" step="1" value="0" data-comparison-observation-slider>
+                      <output data-comparison-observation-output>&ge; 1</output>
+                    </label>
+                    <label class="slider-control">
+                      <span>Minimum absolute normalized mean difference</span>
+                      <input type="range" min="0" max="1000" step="1" value="0" data-comparison-difference-slider>
+                      <output data-comparison-difference-output>All differences</output>
+                    </label>
+                    <label class="select-control">
+                      <span>Direction</span>
+                      <select data-comparison-direction>
+                        <option value="both">Both directions</option>
+                        <option value="right">Higher in {html.escape(right_group)}</option>
+                        <option value="left">Higher in {html.escape(left_group)}</option>
+                      </select>
+                    </label>
+                    <button type="button" data-reset-comparison-refinements>Reset refinements</button>
+                  </div>
+                </details>
+              </div>
+              <div id="{html.escape(target_id)}" class="plot-svg">{svg}</div>
+            </div>
+            """
+        )
+    return f"""
+    <article class="plot-panel exact_deletion_comparison_chords">
+      <div class="plot-title-row">
+        <h3>{html.escape(title)}</h3>
+        <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(aggregate.name)}">Open multipage baseline PDF</a>
+      </div>
+      <p>{html.escape(caption)}</p>
+      <div class="control-guidance"><strong>Choosing a comparison view</strong><p>Use Replicate-significant (BH q &le; 0.05) for biological group conclusions. An empty view means no exact deletion passes that threshold. Replicate p &le; 0.05 is exploratory before multiple-testing correction. Read-depth enriched is technical read-count evidence and must not be reported as biological-replicate significance. Effect-size and observation refinements change only the display; they do not determine statistical significance.</p></div>
+      {''.join(subpanels)}
+    </article>
+    """
+
+
 def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") -> str:
+    if Path(path).stem == "circular_breakpoint_chords_all":
+        panel = circular_location_plot_panel(path, title, caption, link_prefix)
+        if panel:
+            return panel
+    if Path(path).stem == "exact_deletion_comparison_chords":
+        panel = circular_comparison_plot_panel(path, title, caption, link_prefix)
+        if panel:
+            return panel
     svg_path = Path(path).with_suffix(".svg")
     pdf_name = html.escape(Path(path).name)
     panel_class = "plot-panel " + Path(path).stem.replace("-", "_")
@@ -908,7 +1091,18 @@ def reference_section(config: dict, features: pd.DataFrame) -> str:
     known = configured_deletion_target_table(config)
     known_sequences = known_sequence_search_table(config)
     regions = configured_region_table(config)
+    replication_arcs = configured_replication_arc_table(config)
     extra = ""
+    if not replication_arcs.empty:
+        boundary_basis = str(ref.get("replication_arc_boundary_basis", "")).strip()
+        basis_text = f'<p><strong>Boundary basis:</strong> {html.escape(boundary_basis)}</p>' if boundary_basis else ""
+        extra += (
+            '<h3>Configured Major And Minor Arcs</h3>'
+            '<p>These reference-specific replication-arc labels annotate the alignment-directed deleted interval after calling. '
+            'They do not select the deleted circular interval and are kept separate from affected-gene and configured-region annotations.</p>'
+            + basis_text
+            + table_html(replication_arcs, rows=10)
+        )
     if not regions.empty:
         extra += '<h3>Configured Mitochondrial Regions</h3>' + table_html(regions, rows=100)
     if not known.empty:
@@ -1894,7 +2088,7 @@ def stream_result_section(
       {result_table_panel("Deletion Burden By Sample", "One row per sample with normalized deletion burden, raw support, and sample-level QC fields.", burden)}
       {result_table_panel("Exact Deletion Group Comparisons", "Exact breakpoint intervals compared across the configured primary groups.", exact_comp)}
       {result_table_panel("Affected-Feature Group Comparisons", "Exact deletions collapsed to the mitochondrial features affected by the deleted interval.", affected_comp)}
-      {result_table_panel("Exact Deletion Calls", "Alignment-directed exact deletion intervals with coordinates, complement diagnostics, direction and rotation status, support, sample recurrence, feature annotations, and links from total_supporting_reads to read-level evidence files. " + display_note, display_clusters, html_cells=exact_read_links, presorted=True)}
+      {result_table_panel("Exact Deletion Calls", "Alignment-directed exact deletion intervals with coordinates, complement diagnostics, direction and rotation status, support, sample recurrence, feature annotations, configured major/minor replication-arc context, and links from total_supporting_reads to read-level evidence files. " + display_note, display_clusters, html_cells=exact_read_links, presorted=True)}
       {result_table_panel("Collapsed Feature-Impact Comparisons", "Broad structural classes derived from affected-feature annotations.", impact_comp)}
       {result_table_panel("Deletion Size Distribution Tests", "Group-level tests comparing deletion-size distributions.", size_tests)}
       {result_table_panel("Deletion Size Bin Summary", "Group summaries for small, medium, and large deletion support.", size_bin_summary)}
@@ -2012,6 +2206,8 @@ def main() -> None:
         "deletion_rainfall_left_breakpoint.pdf": ("Deletion Rainfall: Left Breakpoint", f"{rainfall_display_definition(config, burden)} Each point is one displayed exact deletion, placed by alignment-directed left breakpoint and deleted size on a log y-axis. Larger and brighter points have more normalized support. Marker numbers give unique support ranks within each group and match the right-breakpoint, circular-midpoint, and breakpoint-pair views; numbers are omitted when they do not fit. A cyan outline marks directed intervals spanning the coordinate origin. This is a display filter for the plot only; the exact-deletion table remains the complete call list subject to its own table-display settings."),
         "deletion_rainfall_right_breakpoint.pdf": ("Deletion Rainfall: Right Breakpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same displayed exact deletions, group-specific support ranks, and support scale as the left-breakpoint rainfall plot, but places each point by alignment-directed right breakpoint. Comparing left and right views helps identify fixed-endpoint patterns."),
         "deletion_rainfall_midpoint.pdf": ("Deletion Rainfall: Circular Midpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same displayed exact deletions and group-specific support ranks, placed by the circular midpoint of the deleted interval. Origin-spanning deletions are positioned by the midpoint along the deleted circular path rather than by a simple linear average."),
+        "circular_breakpoint_chords_all.pdf": ("Circular Breakpoint Chords", f"{rainfall_display_definition(config, burden)} Each chord joins the alignment-directed left and right breakpoints of one exact deletion. The baseline PDF uses the rainfall display threshold and count cap; the HTML view loads every threshold-eligible call and provides normalized-support and raw-observation controls. Chord color uses the same normalized-support scale as the rainfall plots."),
+        "exact_deletion_comparison_chords.pdf": ("Exact Deletion Group Comparison Chords", "Each chord represents one exact deletion in a configured group comparison. Chord color is the normalized mean-support difference between groups. The HTML views provide explicit replicate-level, exploratory, and technical read-depth presets plus optional display refinements."),
         "breakpoint_pair_support_map.pdf": ("Breakpoint-Pair Support Map", f"{rainfall_display_definition(config, burden)} Each point is one unique left/right breakpoint pair after applying the same display threshold and optional per-group cap as the rainfall plots. Marker numbers use the same group-specific support ranks as the three rainfall views. The x-axis is the left breakpoint; the y-axis is the right breakpoint, with origin-crossing right breakpoints shown above the horizontal genome-end line."),
         "pooled_breakpoint_support_density.pdf": ("Pooled Breakpoint Support Density", f"{rainfall_display_definition(config, burden)} This group-split view summarizes where deletion endpoints accumulate along the mitochondrial genome after pooling left and right breakpoints within each group. Stacked bars show binned support split by left versus right endpoint; the line is circular-smoothed total endpoint support."),
         "pooled_breakpoint_support_density_capped.pdf": ("Pooled Breakpoint Support Density: Capped Scale", f"{rainfall_display_definition(config, burden)} This is the same group-split endpoint-density view with the y-axis capped so smaller secondary breakpoint hotspots remain visible when one region dominates."),
@@ -2039,6 +2235,8 @@ def main() -> None:
         "deletion_rainfall_left_breakpoint.pdf",
         "deletion_rainfall_right_breakpoint.pdf",
         "deletion_rainfall_midpoint.pdf",
+        "circular_breakpoint_chords_all.pdf",
+        "exact_deletion_comparison_chords.pdf",
         "breakpoint_pair_support_map.pdf",
         "pooled_breakpoint_support_density.pdf",
         "pooled_breakpoint_support_density_capped.pdf",
@@ -2202,6 +2400,10 @@ def main() -> None:
     });
     """
 
+    report_asset_dir = Path(__file__).resolve().parents[1] / "report_assets"
+    css += "\n" + (report_asset_dir / "circular_chords.css").read_text(encoding="utf-8")
+    js += "\n" + (report_asset_dir / "circular_chords.js").read_text(encoding="utf-8")
+
     summary_cards = "".join(
         [
             card("Samples", n_samples, "Samples included after metadata resolution."),
@@ -2215,6 +2417,7 @@ def main() -> None:
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{html.escape(args.title)} deletion report</title>
   <style>{css}</style>
 </head>

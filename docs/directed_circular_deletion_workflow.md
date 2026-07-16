@@ -187,6 +187,8 @@ A canonical exact-deletion object includes at least:
   multiple-hypothesis summaries;
 - local remap reference-spanning support when minimap2 evidence provides a
   like-for-like split-support numerator.
+- configured replication-arc context and deleted-base overlap with the major and
+  minor arcs when reference-specific arc definitions are available.
 
 Exact deletions remain coordinate-level events. Affected-feature categories are
 derived labels based on overlap with the directed deleted interval and must not
@@ -206,8 +208,21 @@ Clustering uses circular breakpoint distance and respects direction.
 ## Annotation And Reporting
 
 Feature effects, control-region overlap, size classes, configured-target matches,
-rainfall positions, interval midpoints, and origin markers are derived from the
-directed interval.
+major/minor replication-arc overlap, rainfall positions, interval midpoints, and
+origin markers are derived from the directed interval. Major and minor arcs are
+fixed reference annotations under `references.<species>.replication_arcs`; they are
+kept out of affected-feature categories and never choose between reciprocal deleted
+intervals.
+
+Circular breakpoint-chord displays join the directed retained breakpoints of the
+same exact-deletion objects used by the rainfall plots and tables. Baseline PDFs use
+the rainfall support threshold and per-group count cap. Interactive HTML views may
+load all threshold-eligible calls before that cap and apply display-only support or
+observation filters. Exact-deletion comparison chord views operate on the delivered
+comparison table; replicate-level, exploratory, and read-depth presets retain their
+distinct statistical meanings. Display controls do not alter calls or create
+statistical significance. Linear and circular feature depictions share one palette:
+D-loop/control region coral, protein-coding genes green, rRNA cyan, and tRNA purple.
 
 Each report records:
 

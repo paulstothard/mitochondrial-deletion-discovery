@@ -64,6 +64,8 @@ QUALITY_PLOT_NAMES = [
     "deletion_rainfall_left_breakpoint.pdf",
     "deletion_rainfall_right_breakpoint.pdf",
     "deletion_rainfall_midpoint.pdf",
+    "circular_breakpoint_chords_all.pdf",
+    "exact_deletion_comparison_chords.pdf",
     "breakpoint_pair_support_map.pdf",
     "pooled_breakpoint_support_density.pdf",
     "pooled_breakpoint_support_density_capped.pdf",
@@ -274,6 +276,8 @@ rule all:
         f"{OUTDIR}/plots/deletion_rainfall_left_breakpoint.pdf",
         f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
         f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
+        f"{OUTDIR}/plots/circular_breakpoint_chords_all.pdf",
+        f"{OUTDIR}/plots/exact_deletion_comparison_chords.pdf",
         f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
         f"{OUTDIR}/plots/pooled_breakpoint_support_density.pdf",
         f"{OUTDIR}/plots/pooled_breakpoint_support_density_capped.pdf",
@@ -1169,6 +1173,7 @@ rule build_matrices:
 
 rule plot_results:
     input:
+        plot_script="scripts/plot_deletion_results.py",
         config=DATASET_CONFIG if DATASET_CONFIG else RESOLVED_CONFIG,
         samples=lambda wildcards: checkpoints.resolve_samples.get().output.samples,
         features=f"{OUTDIR}/annotations/mt_features.tsv",
@@ -1243,8 +1248,42 @@ rule plot_results:
         "--endpoint-density-smooth-bins {params.endpoint_density_smooth_bins}"
 
 
+rule plot_circular_chords:
+    input:
+        plot_script="scripts/plot_circular_chords.py",
+        config=DATASET_CONFIG if DATASET_CONFIG else RESOLVED_CONFIG,
+        burden=f"{OUTDIR}/analysis/deletion_burden.tsv",
+        features=f"{OUTDIR}/annotations/mt_features.tsv",
+        observations=f"{OUTDIR}/junctions/all_samples.filtered_junction_reads.tsv",
+        clusters=f"{OUTDIR}/junctions/junction_clusters.tsv",
+        comparison=f"{OUTDIR}/analysis/exact_deletion_comparison.tsv",
+    output:
+        location=f"{OUTDIR}/plots/circular_breakpoint_chords_all.pdf",
+        comparison=f"{OUTDIR}/plots/exact_deletion_comparison_chords.pdf",
+        displayed=f"{OUTDIR}/analysis/circular_chord_displayed_deletions.tsv",
+        interactive=f"{OUTDIR}/analysis/circular_chord_interactive_deletions.tsv",
+        comparison_table=f"{OUTDIR}/analysis/circular_chord_exact_deletion_comparisons.tsv",
+        summary=f"{OUTDIR}/analysis/circular_chord_summary.tsv",
+    params:
+        group=CFG["dataset"].get("primary_group_column", ""),
+        rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
+        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 300),
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/plot_circular_chords.py --config {input.config} --burden {input.burden} "
+        "--features {input.features} --observations {input.observations} --clusters {input.clusters} "
+        "--comparison {input.comparison} --group-column '{params.group}' --genome-length {MT_LENGTH} "
+        "--rainfall-min-support-per-million {params.rainfall_min_support_per_million} "
+        "--rainfall-max-points-per-group {params.rainfall_max_points_per_group} "
+        "--out-location {output.location} --out-comparison {output.comparison} "
+        "--out-displayed-table {output.displayed} --out-interactive-table {output.interactive} "
+        "--out-comparison-table {output.comparison_table} --out-summary {output.summary}"
+
+
 rule plot_quality_profile:
     input:
+        plot_script="scripts/plot_deletion_results.py",
         config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
         samples=lambda wildcards: checkpoints.resolve_samples.get().output.samples,
         features=f"{OUTDIR}/annotations/mt_features.tsv",
@@ -1321,8 +1360,44 @@ rule plot_quality_profile:
         "--endpoint-density-smooth-bins {params.endpoint_density_smooth_bins}"
 
 
+rule plot_quality_profile_circular_chords:
+    input:
+        plot_script="scripts/plot_circular_chords.py",
+        config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
+        burden=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/deletion_burden.tsv",
+        features=f"{OUTDIR}/annotations/mt_features.tsv",
+        observations=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/canonical_observations.tsv",
+        clusters=f"{OUTDIR}/quality/profiles/{{quality_profile}}/junctions/junction_clusters.tsv",
+        comparison=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/exact_deletion_comparison.tsv",
+    output:
+        location=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/circular_breakpoint_chords_all.pdf",
+        comparison=f"{OUTDIR}/quality/profiles/{{quality_profile}}/plots/exact_deletion_comparison_chords.pdf",
+        displayed=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/circular_chord_displayed_deletions.tsv",
+        interactive=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/circular_chord_interactive_deletions.tsv",
+        comparison_table=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/circular_chord_exact_deletion_comparisons.tsv",
+        summary=f"{OUTDIR}/quality/profiles/{{quality_profile}}/analysis/circular_chord_summary.tsv",
+    params:
+        group=CFG["dataset"].get("primary_group_column", ""),
+        rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
+        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 300),
+    conda:
+        "envs/mitochondrial-deletions.yaml"
+    shell:
+        "python scripts/plot_circular_chords.py --config {input.config} --burden {input.burden} "
+        "--features {input.features} --observations {input.observations} --clusters {input.clusters} "
+        "--comparison {input.comparison} --group-column '{params.group}' --genome-length {MT_LENGTH} "
+        "--rainfall-min-support-per-million {params.rainfall_min_support_per_million} "
+        "--rainfall-max-points-per-group {params.rainfall_max_points_per_group} "
+        "--out-location {output.location} --out-comparison {output.comparison} "
+        "--out-displayed-table {output.displayed} --out-interactive-table {output.interactive} "
+        "--out-comparison-table {output.comparison_table} --out-summary {output.summary}"
+
+
 rule make_report:
     input:
+        report_script="scripts/make_deletion_report.py",
+        chord_css="report_assets/circular_chords.css",
+        chord_js="report_assets/circular_chords.js",
         config=DATASET_CONFIG if DATASET_CONFIG else RESOLVED_CONFIG,
         samples=lambda wildcards: checkpoints.resolve_samples.get().output.samples,
         features=f"{OUTDIR}/annotations/mt_features.tsv",
@@ -1355,6 +1430,8 @@ rule make_report:
             f"{OUTDIR}/plots/deletion_rainfall_left_breakpoint.pdf",
             f"{OUTDIR}/plots/deletion_rainfall_right_breakpoint.pdf",
             f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf",
+            f"{OUTDIR}/plots/circular_breakpoint_chords_all.pdf",
+            f"{OUTDIR}/plots/exact_deletion_comparison_chords.pdf",
             f"{OUTDIR}/plots/breakpoint_pair_support_map.pdf",
             f"{OUTDIR}/plots/pooled_breakpoint_support_density.pdf",
             f"{OUTDIR}/plots/pooled_breakpoint_support_density_capped.pdf",
@@ -1393,6 +1470,9 @@ rule make_report:
 
 rule make_quality_profile_report:
     input:
+        report_script="scripts/make_deletion_report.py",
+        chord_css="report_assets/circular_chords.css",
+        chord_js="report_assets/circular_chords.js",
         config=f"{OUTDIR}/quality/shared/resolved_quality_config.yaml",
         source_candidates=f"{OUTDIR}/quality/shared/source_candidates.tsv",
         samples=lambda wildcards: checkpoints.resolve_samples.get().output.samples,
@@ -1539,6 +1619,16 @@ rule make_deliverables:
             all_quality_profile_files("plots/deletion_rainfall_midpoint.pdf")
             if QUALITY_ENABLED
             else f"{OUTDIR}/plots/deletion_rainfall_midpoint.pdf"
+        ),
+        circular_chords=(
+            all_quality_profile_files("plots/circular_breakpoint_chords_all.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/circular_breakpoint_chords_all.pdf"
+        ),
+        comparison_chords=(
+            all_quality_profile_files("plots/exact_deletion_comparison_chords.pdf")
+            if QUALITY_ENABLED
+            else f"{OUTDIR}/plots/exact_deletion_comparison_chords.pdf"
         ),
         breakpoint_pair_map=(
             all_quality_profile_files("plots/breakpoint_pair_support_map.pdf")

@@ -9,6 +9,7 @@ from circular_deletions import (
     features_at,
     known_deletion_match,
     nearest_feature,
+    replication_arc_annotation,
     size_class,
 )
 from common import ensure_parent, read_yaml
@@ -167,6 +168,7 @@ def main() -> None:
         left_overlap = features_at(features, left)
         right_overlap = features_at(features, right)
         impact = affected_feature_impact(features, left, right, args.mt_length)
+        arc_annotation = replication_arc_annotation(config, left, right, args.mt_length)
         known_label, known_reason = known_deletion_match(left, right, int(row["deleted_size"]), config, args.mt_length)
         annotations.append(
             {
@@ -182,6 +184,7 @@ def main() -> None:
                 "feature_impact_class": impact.feature_impact_class,
                 "per_feature_overlap_details": impact.per_feature_hits,
                 "size_class": size_class(int(row["deleted_size"])),
+                **arc_annotation,
                 "known_deletion_label": known_label,
                 "known_deletion_match_reason": known_reason,
             }

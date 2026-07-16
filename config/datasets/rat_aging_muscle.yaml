@@ -31,11 +31,31 @@ references:
     annotation_path: inputs/references/rat/annotation.gtf
     genome_url: https://ftp.ensembl.org/pub/release-104/fasta/rattus_norvegicus/dna/Rattus_norvegicus.Rnor_6.0.dna.toplevel.fa.gz
     annotation_url: https://ftp.ensembl.org/pub/release-104/gtf/rattus_norvegicus/Rattus_norvegicus.Rnor_6.0.104.gtf.gz
+    mt_reference_name: Rattus norvegicus reference mitochondrial genome
+    mt_reference_accession: NC_001665.2
     mt_contig_names:
     - MT
     - chrM
     - MTDNA
     mt_length: 16313
+    replication_arc_boundary_basis: Reference-matched rat landmarks O_L=5171,
+      within the NC_001665.2 rep_origin annotation at 5153-5184, and O_H=16159,
+      the D-loop position homologous to human rCRS 407.
+    replication_arcs:
+    - name: minor_arc
+      display_name: Minor arc
+      start: 16160
+      end: 5170
+      boundary_definition: Forward circular interval after the configured O_H landmark
+        at 16159 through the base before the configured O_L landmark at 5171 on NC_001665.2.
+    - name: major_arc
+      display_name: Major arc
+      start: 5171
+      end: 16159
+      boundary_definition: Complementary forward circular interval from the configured
+        O_L landmark at 5171 through the configured O_H landmark at 16159 on NC_001665.2;
+        O_L lies within the annotated rep_origin interval at 5153-5184, and the O_H
+        landmark is the D-loop position homologous to human rCRS 407.
 annotations:
   feature_aliases:
   - raw_name: AY172581.13

@@ -38,7 +38,7 @@ Main stages:
 
 The report is organized around the following result levels.
 
-**Exact deletions** are directed coordinate-level inferred deletion models. They have alignment-directed left and right retained-flanking breakpoints, deleted size, wrapping status, complement diagnostics, direction and rotation status, support, normalized support, sample/group labels, and optional configured target labels such as the human common mtDNA deletion.
+**Exact deletions** are directed coordinate-level inferred deletion models. They have alignment-directed left and right retained-flanking breakpoints, deleted size, wrapping status, complement diagnostics, direction and rotation status, support, normalized support, sample/group labels, reference-specific major/minor replication-arc context, and optional configured target labels such as the human common mtDNA deletion.
 
 For each exact deletion with minimap2 remap evidence, the workflow also estimates local reference-spanning support at the two breakpoints. This asks a narrow question: in the same mitochondrial remap stream, how many primary alignments span the left and right breakpoint neighborhoods without requiring a deletion split? The workflow counts local spanning depth in the normal and rotated mitochondrial remaps and uses the larger count for each breakpoint, which avoids summing the same evidence twice across rotations. STAR-only calls are marked unavailable because a STAR chimeric numerator and minimap2 remap denominator would not be comparable. The report gives the left and right reference-spanning counts, the smaller of those two counts, and a local split-support fraction:
 
@@ -49,6 +49,8 @@ This is a local alignment-support metric, not the denominator used for the main 
 **Affected-feature categories** are deterministic interval annotations, not exact-deletion identities. For each deletion, the workflow determines which annotated mitochondrial genes or features overlap the deleted interval. Feature names come from the reference annotation, are sorted by genomic order, and are joined with `+`, for example `MT-ATP6+MT-CO3+MT-ND3`. This makes group comparisons more stable when breakpoints vary slightly but affect the same genes.
 
 The annotation step reduces raw GTF rows to one biological feature per gene/name before assigning affected-feature labels. This avoids counting separate gene, transcript, exon, and CDS records for the same biological feature. Dataset configs can add noncoding mitochondrial regions under `analysis.mt_regions`, such as control-region/D-loop intervals, direct-repeat windows, origins, or other coordinate intervals that are biologically useful but absent from the GTF.
+
+Reference-specific `references.<species>.replication_arcs` entries define the mitochondrial **minor arc** and **major arc** coordinate convention used for reporting. Every exact deletion records `replication_arc_context` as `minor_arc_only`, `major_arc_only`, or `major_and_minor_arcs`, together with the number of deleted reference bases overlapping each arc. These replication-arc annotations are separate from `analysis.mt_regions`: they do not enter affected-feature labels, and they do not choose the alignment-directed deleted circular interval. The configured report table states the boundary coordinates and whether an arc wraps the artificial coordinate origin.
 
 Dataset configs can also add `annotations.feature_aliases` when a reference annotation uses accession-like or otherwise unhelpful mitochondrial feature names. Aliases affect report labels, affected-feature categories, plots, and comparison tables while keeping the raw reference annotation available in the generated annotation files and resolved config.
 
@@ -74,6 +76,8 @@ After minimap2 remapping:
 - the same read supporting the same directed deletion in both rotations is counted once in matrices, burden summaries, statistics, and reports;
 - same-read reciprocal conflicts across rotations are retained as ambiguous evidence and excluded from primary summaries by default;
 - final exact-deletion IDs are generated from directed coordinates and deleted size.
+
+The phrase *alignment-directed deleted arc* refers to the circular interval inferred from one read-supported `L -> R` adjacency. *Major arc* and *minor arc* refer instead to fixed, reference-specific regions bounded by configured replication-origin landmarks. A called deletion can lie only in the major arc, only in the minor arc, or overlap both; the fixed arc labels never resolve a reciprocal-direction ambiguity.
 
 Example:
 
@@ -203,10 +207,20 @@ references:
     mt_reference_accession: NC_012920.1
     mt_contig_names: [MT, chrM, MTDNA]
     mt_length: 16569
+    replication_arc_boundary_basis: MitoBreak analytical major/minor arc convention using O_H=407 and O_L=5747 on the rCRS coordinate system.
+    replication_arcs:
+      - name: minor_arc
+        display_name: Minor arc
+        start: 408
+        end: 5746
+      - name: major_arc
+        display_name: Major arc
+        start: 5747
+        end: 407
 ```
 
 Local `.gz` files are decompressed into the workflow reference directory. A configured local path takes precedence over the corresponding URL. URL-based downloads remain supported when the local path field is omitted.
-The optional `mt_reference_name` and `mt_reference_accession` fields are shown in the report so collaborators can confirm the mitochondrial coordinate standard used for deletion coordinates.
+The optional `mt_reference_name` and `mt_reference_accession` fields are shown in the report so collaborators can confirm the mitochondrial coordinate standard used for deletion coordinates. When `replication_arcs` are configured, `replication_arc_boundary_basis` should state how the origin landmarks were chosen, and each arc should include an explicit `boundary_definition` documenting the coordinate convention.
 
 Local sample FASTQs can be provided in the sample table with `fastq_1` and optional `fastq_2` columns. Both `.fastq.gz` and uncompressed `.fastq` are supported for local inputs.
 
@@ -237,6 +251,8 @@ Main plots include:
 - age-by-treatment interaction plots when `age` and `treatment` metadata are present;
 - deletion size distributions, including log-y and size-restricted views;
 - deletion rainfall plots shown as full-size per-group figures by left breakpoint, right breakpoint, and circular deleted-interval midpoint, with support-rank numbers inside markers that are large enough to label;
+- circular breakpoint-chord plots joining the directed breakpoints of each threshold-eligible exact deletion, with interactive normalized-support and observation controls in the HTML report;
+- circular exact-deletion group-comparison plots with replicate-significance, exploratory replicate-p, and technical read-depth views plus optional effect, support, and direction refinements;
 - breakpoint-pair support maps showing which deletion starts pair with which deletion ends;
 - group-split pooled breakpoint support-density plots showing where deletion endpoints accumulate, with binned support split into left and right breakpoint bars behind a circular-smoothed total-support curve;
 - affected-feature normalized support and within-group proportions;
@@ -250,6 +266,10 @@ Plot group order and colors are chosen once per report and reused across plots. 
 
 The deletion rainfall plots, breakpoint-pair support map, and pooled breakpoint support-density plots are visual displays, not separate calling steps. They use the same display rule. By default `plots.rainfall_min_support_per_million: 0.0`, so low-abundance datasets are not hidden by a normalized-support cutoff. `plots.rainfall_max_points_per_group: 300` limits each group panel to the highest-support displayed exact deletions so dense datasets remain readable. Within each group, displayed exact deletions receive unique support ranks using exact-deletion coordinates as a deterministic tie-breaker. Those ranks remain consistent across the left-breakpoint, right-breakpoint, circular-midpoint, and breakpoint-pair views; a rank is printed inside its marker only when it fits at the configured plotting size. These settings affect only the plots; the exact-deletion tables, matrices, comparisons, and read-list links retain the full analyzed call set subject to their own table-display filters.
 
+The baseline circular breakpoint-chord PDFs use the same support threshold and per-group count cap as the rainfall plots. Their HTML views load every exact deletion passing the support threshold before the count cap. The logarithmic support slider changes the minimum normalized support; the observation selector can apply an additional raw-evidence cutoff. Its `Auto` value reports the lowest raw count among calls passing the support slider, and moving the slider returns the selector to `Auto`. Circular comparison plots load the delivered exact-deletion comparison rows and provide named views for replicate-level BH significance, exploratory unadjusted replicate p-values, and technical read-depth enrichment. Display refinements do not create statistical significance.
+
+Mitochondrial coordinate plots use a shared annotation palette: D-loop/control region coral, protein-coding genes green, rRNA cyan, and tRNA purple. Circular plots place coordinate 1 at 12 o'clock and increase coordinates clockwise. Feature and chord mouseovers expose names, coordinates, directed deletion IDs, support, arc annotations, and applicable comparison statistics.
+
 Large result tables in the HTML report are searchable, sortable, and paged. Small tables are shown directly without search controls.
 
 Heatmaps are intentionally not part of the main report.
@@ -261,6 +281,7 @@ Heatmaps are intentionally not part of the main report.
 - `config/datasets/*.yaml` - dataset-specific configuration.
 - `envs/mitochondrial-deletions.yaml` - conda environment used by Snakemake rules.
 - `scripts/` - Python workflow scripts.
+- `report_assets/` - CSS and JavaScript inlined into generated interactive reports.
 - `docs/workflow_methods_and_assumptions.md` - detailed workflow stages, coordinate semantics, assumptions, and assay-specific interpretation.
 - `docs/directed_circular_deletion_workflow.md` - normative circular-arc, alignment-chain, clustering, reporting, and validation requirements.
 - `tests/` - focused unit tests for metadata, directed circular coordinates, deletion evidence, reporting helpers, and parsing.

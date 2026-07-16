@@ -137,8 +137,17 @@ The directed interval determines:
 - fully removed and partially overlapped features;
 - nearest and breakpoint-overlapping features;
 - origin-spanning and control-region involvement;
+- overlap with the configured major and minor mitochondrial replication arcs;
 - size class;
 - configured deletion-target matches.
+
+Major/minor replication-arc overlap is a reference annotation applied after the
+directed deleted interval has been inferred. `replication_arc_context` distinguishes
+`major_arc_only`, `minor_arc_only`, and `major_and_minor_arcs`, while
+`major_arc_deleted_bp` and `minor_arc_deleted_bp` give the corresponding overlap
+lengths. Replication arcs are configured under
+`references.<species>.replication_arcs`; they are not affected features and do not
+participate in reciprocal interval selection.
 
 Expected mitochondrial transcript junctions are configuration-driven. When enabled,
 matching transcript-compatible evidence is excluded from primary deletion summaries
@@ -182,6 +191,31 @@ automatically mtDNA heteroplasmy. STAR-only calls are marked unavailable because
 STAR chimeric numerator cannot be compared directly with a minimap2 remap
 reference-support denominator.
 
+### 9.1 Circular deletion displays
+
+Circular breakpoint-chord plots are report views over the canonical exact-deletion
+objects; they are not additional callers. Each chord joins the alignment-directed
+left and right retained breakpoints. Coordinate 1 is at 12 o'clock and coordinates
+increase clockwise. The outer annotation ring and the linear mitochondrial feature
+tracks use the same feature classes and colors: D-loop/control region coral,
+protein-coding genes green, rRNA cyan, and tRNA purple.
+
+The baseline chord PDFs use the rainfall support threshold and per-group count cap.
+The HTML location view loads every call passing that support threshold before the
+count cap. Its logarithmic support slider controls minimum normalized support. The
+observation selector can add an absolute raw-evidence cutoff; `Auto` reports the
+lowest raw count among calls retained by the support slider, and moving that slider
+returns the selector to `Auto`. Reset restores the baseline PDF display set.
+
+Circular group-comparison views load the delivered exact-deletion comparison rows.
+The replicate-significant view applies replicate-level BH q <= 0.05 and is the
+appropriate preset for biological group conclusions. The unadjusted replicate-p
+view is exploratory. The read-depth BH view is technical count evidence rather than
+biological-replicate significance. Optional effect-size, supporting-observation, and
+direction controls refine only what is drawn. HTML mouseovers expose the underlying
+coordinates, exact-deletion ID, support, arc annotation, and applicable statistics;
+the static PDF remains the portable baseline view.
+
 ### 10. Short-read RNA caller roles
 
 STAR maps against the full nuclear-plus-mitochondrial genome. Its chimeric junction
@@ -215,6 +249,12 @@ Breakpoints are 1-based retained flanking bases:
 - deleted size excludes both retained breakpoint bases;
 - `wraps_origin` describes the directed deleted interval, not the physical location
   of the read or an unordered breakpoint pair.
+
+The *deleted circular arc* in the caller is event-specific and follows the retained
+adjacency `L -> R`. The mitochondrial *major arc* and *minor arc* are fixed
+reference regions bounded by configured replication-origin landmarks. These are
+different uses of the word "arc." Major/minor arc labels describe where the inferred
+deleted bases fall; they cannot determine whether `L -> R` or `R -> L` is supported.
 
 ## Assumptions
 

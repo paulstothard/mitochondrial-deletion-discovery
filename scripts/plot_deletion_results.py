@@ -27,6 +27,21 @@ from common import ensure_parent
 
 sns.set_theme(style="whitegrid", context="notebook")
 
+# Shared mitochondrial annotation palette used in every coordinate-based feature depiction.
+# The class colors match the report's circular annotation ring.
+MITOCHONDRIAL_FEATURE_COLORS = {
+    "protein_coding": "#7CAE00",
+    "rRNA": "#00BFC4",
+    "tRNA": "#C77CFF",
+    "region": "#F8766D",
+    "other": "#9AA3AF",
+}
+
+
+def mitochondrial_feature_color(feature_class: str) -> str:
+    canonical = "protein_coding" if feature_class == "protein-coding" else feature_class
+    return MITOCHONDRIAL_FEATURE_COLORS.get(canonical, MITOCHONDRIAL_FEATURE_COLORS["other"])
+
 TECHNICAL_COLUMNS = {
     "sample",
     "dataset",
@@ -513,12 +528,6 @@ def mitochondrial_axis_bounds(features: pd.DataFrame) -> tuple[float, float]:
 def draw_feature_tracks(ax: plt.Axes, features: pd.DataFrame, y_base: float, height: float) -> None:
     if features.empty or "start" not in features.columns or "end" not in features.columns:
         return
-    colors = {
-        "protein-coding": "#2563eb",
-        "rRNA": "#7c3aed",
-        "tRNA": "#059669",
-        "other": "#64748b",
-    }
     lanes = {"protein-coding": 0, "rRNA": 1, "tRNA": 2, "other": 3}
     label_min_width = 360
     for _, row in features.iterrows():
@@ -534,7 +543,7 @@ def draw_feature_tracks(ax: plt.Axes, features: pd.DataFrame, y_base: float, hei
                 (float(start), y),
                 float(end - start),
                 height,
-                facecolor=colors.get(kind, "#64748b"),
+                facecolor=mitochondrial_feature_color(kind),
                 edgecolor="none",
                 alpha=0.22,
                 clip_on=True,
@@ -572,12 +581,6 @@ def draw_feature_track_axis(ax: plt.Axes, features: pd.DataFrame) -> tuple[float
         ax.set_axis_off()
         return (1.0, 1.0)
     x_min, x_max = mitochondrial_axis_bounds(features)
-    colors = {
-        "protein-coding": "#2563eb",
-        "rRNA": "#7c3aed",
-        "tRNA": "#059669",
-        "other": "#64748b",
-    }
     lanes = {"protein-coding": 3, "rRNA": 2, "tRNA": 1, "other": 0}
     label_min_width = 520
     for _, row in features.iterrows():
@@ -592,7 +595,7 @@ def draw_feature_track_axis(ax: plt.Axes, features: pd.DataFrame) -> tuple[float
                 (float(start), lane - 0.32),
                 float(end - start),
                 0.64,
-                facecolor=colors.get(kind, "#64748b"),
+                facecolor=mitochondrial_feature_color(kind),
                 edgecolor="none",
                 alpha=0.28,
             )
@@ -960,13 +963,6 @@ def draw_location_feature_track(ax: plt.Axes, features: pd.DataFrame, genome_len
         x_max = float(genome_length)
     rows = {"protein_coding": 3.25, "rRNA": 2.1, "tRNA": 1.0, "region": -0.15, "other": -1.0}
     labels = {"protein_coding": "protein-coding", "rRNA": "rRNA", "tRNA": "tRNA", "region": "regions"}
-    feature_colors = {
-        "protein_coding": "#4f7edb",
-        "rRNA": "#9d6ad6",
-        "tRNA": "#65bfa5",
-        "region": "#f0b84f",
-        "other": "#9aa3af",
-    }
     x_span = max(1.0, float(x_max) - float(x_min))
     dloop_segments: list[tuple[float, float]] = []
     labeled_names: set[str] = set()
@@ -985,7 +981,7 @@ def draw_location_feature_track(ax: plt.Axes, features: pd.DataFrame, genome_len
                 (start, y - 0.28),
                 max(1.0, end - start + 1),
                 0.56,
-                color=feature_colors.get(cls, feature_colors["other"]),
+                color=mitochondrial_feature_color(cls),
                 alpha=0.9,
             )
         )

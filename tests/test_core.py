@@ -12,7 +12,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from classify_mt_reads import classify_alignment, reverse_complement
 from annotate_junctions import append_configured_regions, apply_feature_aliases, biological_features
 from analyze_deletions import deduplicate_evidence_reads, expected_transcript_mask
-from circular_deletions import affected_feature_impact, configured_deletion_targets, directed_breakpoints, known_deletion_match, normalize_pos as normalize_rotated_pos
+from circular_deletions import (
+    affected_feature_impact,
+    configured_deletion_targets,
+    directed_breakpoints,
+    known_deletion_match,
+    normalize_pos as normalize_rotated_pos,
+    replication_arc_annotation,
+)
 from call_minimap2_deletions import alignment_chain_key, candidate_rows_from_chains, deletion_from_segments
 from cluster_junctions import canonical_junction
 from consolidate_deletions import cluster_rows, split_direction_conflicts
@@ -20,9 +27,11 @@ from make_rotated_mt_reference import rotate_sequence
 from parse_split_alignments import aligned_bases_from_cigar, deletion_size, normalize_pos, parse_star_junction_line
 from prepare_reads import normalized_layout
 from plot_deletion_results import (
+    MITOCHONDRIAL_FEATURE_COLORS,
     apply_cluster_coordinates,
     assign_group_support_ranks,
     draw_feature_track_axis,
+    draw_location_feature_track,
     endpoint_density_figure,
     endpoint_density_hotspots,
     location_features,
@@ -42,6 +51,9 @@ from estimate_breakpoint_reference_support import circular_window, window_covere
 from make_deletion_report import (
     assay_limitations,
     assumptions_section,
+    circular_comparison_plot_panel,
+    circular_location_plot_panel,
+    configured_replication_arc_table,
     exact_deletion_display_table,
     exact_deletion_table_settings,
     exact_deletion_support_read_links,
@@ -52,6 +64,7 @@ from make_deletion_report import (
     write_configured_sequence_read_lists,
     write_exact_deletion_read_lists,
 )
+from plot_circular_chords import add_feature_ring, chord_path, circle_point
 from resolve_samples import derive_age, derive_replicate, derive_treatment, make_sample_id, validate_dataset_inputs
 from search_known_sequences import compiled_searches, match_multi_required, match_single, sample_from_fastq, scan_fastq_for_searches
 from select_whole_genome_mt_from_sam import classify_group
@@ -569,6 +582,96 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(len(with_regions), 2)
         self.assertEqual(with_regions[["start", "end"]].astype(int).values.tolist(), [[900, 1000], [1, 100]])
 
+    def test_replication_arc_annotations_follow_directed_deleted_interval(self):
+        config = {
+            "dataset": {"species": "human"},
+            "references": {
+                "human": {
+                    "mt_length": 16569,
+                    "replication_arcs": [
+                        {"name": "minor_arc", "start": 408, "end": 5746},
+                        {"name": "major_arc", "start": 5747, "end": 407},
+                    ],
+                }
+            },
+        }
+        major_only = replication_arc_annotation(config, left=8469, right=13447, mt_length=16569)
+        self.assertEqual(major_only["replication_arc_context"], "major_arc_only")
+        self.assertEqual(major_only["major_arc_deleted_bp"], 4977)
+        self.assertEqual(major_only["minor_arc_deleted_bp"], 0)
+
+        reciprocal = replication_arc_annotation(config, left=13447, right=8469, mt_length=16569)
+        self.assertEqual(reciprocal["replication_arc_context"], "major_and_minor_arcs")
+        self.assertEqual(reciprocal["major_arc_deleted_bp"] + reciprocal["minor_arc_deleted_bp"], 11590)
+        self.assertEqual(reciprocal["minor_arc_deleted_bp"], 5339)
+
+        minor_only = replication_arc_annotation(config, left=1000, right=2000, mt_length=16569)
+        self.assertEqual(minor_only["replication_arc_context"], "minor_arc_only")
+        self.assertEqual(minor_only["minor_arc_deleted_bp"], 999)
+        self.assertEqual(minor_only["major_arc_deleted_bp"], 0)
+
+    def test_replication_arcs_are_not_affected_features(self):
+        import pandas as pd
+
+        features = pd.DataFrame(columns=["contig", "start", "end", "strand", "feature_type", "gene_id", "gene_name", "transcript_id", "product"])
+        config = {
+            "dataset": {"species": "human"},
+            "references": {
+                "human": {
+                    "replication_arcs": [
+                        {"name": "minor_arc", "start": 408, "end": 5746},
+                        {"name": "major_arc", "start": 5747, "end": 407},
+                    ]
+                }
+            },
+        }
+        self.assertTrue(append_configured_regions(features, config, mt_length=16569).empty)
+
+    def test_replication_arc_configuration_must_partition_reference(self):
+        config = {
+            "dataset": {"species": "human"},
+            "references": {
+                "human": {
+                    "replication_arcs": [
+                        {"name": "minor_arc", "start": 408, "end": 5746},
+                        {"name": "major_arc", "start": 5748, "end": 407},
+                    ]
+                }
+            },
+        }
+        with self.assertRaisesRegex(ValueError, "partition"):
+            replication_arc_annotation(config, left=1000, right=2000, mt_length=16569)
+
+    def test_report_replication_arc_table_handles_wrapping_reference_arcs(self):
+        config = {
+            "dataset": {"species": "rat"},
+            "references": {
+                "rat": {
+                    "mt_length": 16313,
+                    "replication_arcs": [
+                        {"name": "minor_arc", "display_name": "Minor arc", "start": 16160, "end": 5170},
+                        {"name": "major_arc", "display_name": "Major arc", "start": 5171, "end": 16159},
+                    ],
+                }
+            },
+        }
+        table = configured_replication_arc_table(config)
+        self.assertEqual(table["arc_name"].tolist(), ["Minor arc", "Major arc"])
+        self.assertEqual(table["wraps_coordinate_origin"].tolist(), ["yes", "no"])
+        self.assertEqual(table["length_bp"].sum(), 16313)
+
+    def test_dataset_replication_arcs_partition_each_mitochondrial_reference(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        for config_path in sorted((repo_root / "config" / "datasets").glob("*.yaml")):
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            table = configured_replication_arc_table(config)
+            self.assertEqual(set(table["arc_name"]), {"Minor arc", "Major arc"}, config_path.name)
+            species = config["dataset"]["species"]
+            reference = config["references"][species]
+            self.assertTrue(str(reference.get("replication_arc_boundary_basis", "")).strip(), config_path.name)
+            mt_length = int(reference["mt_length"])
+            self.assertEqual(int(table["length_bp"].sum()), mt_length, config_path.name)
+
     def test_reference_support_windows_handle_origin_wrapping(self):
         self.assertEqual(circular_window(5, 10, 100), [(95, 100), (1, 15)])
         self.assertTrue(window_covered(5, 10, 100, [(90, 100), (1, 20)]))
@@ -672,6 +775,93 @@ class CoreTests(unittest.TestCase):
             self.assertTrue(all(text.get_clip_on() for text in feature_labels))
         finally:
             plt.close(fig)
+
+    def test_mitochondrial_feature_palette_is_shared_by_linear_and_circular_tracks(self):
+        from matplotlib.colors import to_hex
+
+        self.assertEqual(
+            MITOCHONDRIAL_FEATURE_COLORS,
+            {
+                "protein_coding": "#7CAE00",
+                "rRNA": "#00BFC4",
+                "tRNA": "#C77CFF",
+                "region": "#F8766D",
+                "other": "#9AA3AF",
+            },
+        )
+        features = pd.DataFrame(
+            [
+                {"name": "MT-ND1", "class": "protein_coding", "start": 100, "end": 300},
+                {"name": "MT-RNR1", "class": "rRNA", "start": 350, "end": 550},
+                {"name": "MT-TF", "class": "tRNA", "start": 600, "end": 680},
+                {"name": "D-loop/control", "class": "region", "start": 700, "end": 900},
+            ]
+        )
+        expected = {value.lower() for key, value in MITOCHONDRIAL_FEATURE_COLORS.items() if key != "other"}
+
+        linear_fig, linear_ax = plt.subplots()
+        circular_fig, circular_ax = plt.subplots()
+        try:
+            draw_location_feature_track(linear_ax, features, 1000)
+            add_feature_ring(circular_ax, features, 1000)
+            linear_colors = {to_hex(patch.get_facecolor()).lower() for patch in linear_ax.patches}
+            circular_colors = {
+                to_hex(patch.get_facecolor()).lower()
+                for patch in circular_ax.patches
+                if patch.get_fill()
+            }
+            self.assertTrue(expected.issubset(linear_colors))
+            self.assertTrue(expected.issubset(circular_colors))
+        finally:
+            plt.close(linear_fig)
+            plt.close(circular_fig)
+
+    def test_circular_chord_endpoints_use_clockwise_mt_coordinates(self):
+        genome_length = 1000
+        self.assertAlmostEqual(circle_point(1, 1.0, genome_length)[0], 0.0, places=10)
+        self.assertAlmostEqual(circle_point(1, 1.0, genome_length)[1], 1.0, places=10)
+        quarter = circle_point(251, 1.0, genome_length)
+        self.assertAlmostEqual(quarter[0], 1.0, places=10)
+        self.assertAlmostEqual(quarter[1], 0.0, places=10)
+        path = chord_path(100, 800, 0.9, genome_length)
+        self.assertTrue((path.vertices[0] == circle_point(100, 0.9, genome_length)).all())
+        self.assertTrue((path.vertices[-1] == circle_point(800, 0.9, genome_length)).all())
+
+    def test_report_circular_chord_panels_include_interactive_controls(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plots = Path(tmp)
+            location = plots / "circular_breakpoint_chords_all.pdf"
+            location.write_bytes(b"pdf")
+            (plots / "circular_breakpoint_chords_all__group_a.pdf").write_bytes(b"pdf")
+            (plots / "circular_breakpoint_chords_all__group_a__interactive.svg").write_text(
+                '<svg data-group="group A"><g class="deletion-chord" data-support="1" '
+                'data-observations="2" data-baseline="1"/></svg>',
+                encoding="utf-8",
+            )
+            location_html = circular_location_plot_panel(str(location), "Location", "Caption", "plots")
+            self.assertIn("data-support-slider", location_html)
+            self.assertIn("data-observation-filter", location_html)
+            self.assertIn("Moving the support slider returns this setting to Auto", location_html)
+            self.assertIn("group A", location_html)
+
+            comparison = plots / "exact_deletion_comparison_chords.pdf"
+            comparison.write_bytes(b"pdf")
+            (plots / "exact_deletion_comparison_chords__control_vs_treated.pdf").write_bytes(b"pdf")
+            (plots / "exact_deletion_comparison_chords__control_vs_treated.svg").write_text(
+                '<svg data-left-group="control" data-right-group="treated">'
+                '<g class="comparison-chord" data-total-observations="3" data-absolute-difference="1"/>'
+                '</svg>',
+                encoding="utf-8",
+            )
+            comparison_html = circular_comparison_plot_panel(
+                str(comparison), "Comparisons", "Caption", "plots"
+            )
+            self.assertIn("Replicate-significant", comparison_html)
+            self.assertIn("Read-depth enriched", comparison_html)
+            self.assertIn("treated compared with control", comparison_html)
+            self.assertNotIn("major arc", comparison_html.lower())
 
     def test_rainfall_support_scaling_uses_observed_range(self):
         support = pd.Series([0.0034, 0.01, 0.1, 0.348])

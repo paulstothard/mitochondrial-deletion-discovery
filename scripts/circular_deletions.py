@@ -48,6 +48,94 @@ def interval_length(pieces: Iterable[tuple[int, int]]) -> int:
     return sum(max(0, int(end) - int(start) + 1) for start, end in pieces)
 
 
+def circular_closed_interval_pieces(start: int, end: int, mt_length: int) -> list[tuple[int, int]]:
+    """Return one or two closed intervals for a configured circular region."""
+    start = int(start)
+    end = int(end)
+    mt_length = int(mt_length)
+    if mt_length <= 0:
+        raise ValueError("mt_length must be positive")
+    if not 1 <= start <= mt_length or not 1 <= end <= mt_length:
+        raise ValueError("circular region coordinates must fall within the mitochondrial reference")
+    if start <= end:
+        return [(start, end)]
+    return [(start, mt_length), (1, end)]
+
+
+def interval_overlap_bp(first: Iterable[tuple[int, int]], second: Iterable[tuple[int, int]]) -> int:
+    """Count bases shared by two sets of closed, non-overlapping intervals."""
+    return sum(
+        max(0, min(int(first_end), int(second_end)) - max(int(first_start), int(second_start)) + 1)
+        for first_start, first_end in first
+        for second_start, second_end in second
+    )
+
+
+def configured_replication_arcs(config: dict) -> list[dict]:
+    species = str((config.get("dataset", {}) or {}).get("species", ""))
+    reference = (config.get("references", {}) or {}).get(species, {}) or {}
+    return reference.get("replication_arcs", []) or []
+
+
+def validated_replication_arc_pieces(config: dict, mt_length: int) -> dict[str, list[tuple[int, int]]]:
+    arcs = configured_replication_arcs(config)
+    if not arcs:
+        return {}
+    pieces_by_name: dict[str, list[tuple[int, int]]] = {}
+    for arc in arcs:
+        name = re.sub(r"[^a-z0-9]+", "_", str(arc.get("name", "")).strip().lower()).strip("_")
+        if not name:
+            raise ValueError("configured replication arc is missing a name")
+        if name in pieces_by_name:
+            raise ValueError(f"configured replication arc name is duplicated: {name}")
+        try:
+            pieces_by_name[name] = circular_closed_interval_pieces(arc["start"], arc["end"], mt_length)
+        except KeyError as exc:
+            raise ValueError(f"configured replication arc {name} is missing {exc.args[0]}") from exc
+    expected = {"minor_arc", "major_arc"}
+    if set(pieces_by_name) != expected:
+        raise ValueError("replication_arcs must define exactly minor_arc and major_arc")
+    total_length = sum(interval_length(pieces) for pieces in pieces_by_name.values())
+    shared_length = interval_overlap_bp(pieces_by_name["minor_arc"], pieces_by_name["major_arc"])
+    if total_length != int(mt_length) or shared_length:
+        raise ValueError("configured minor_arc and major_arc must partition the mitochondrial reference without gaps or overlaps")
+    return pieces_by_name
+
+
+def replication_arc_annotation(config: dict, left: int, right: int, mt_length: int) -> dict[str, object]:
+    """Annotate a directed deleted interval against configured major/minor replication arcs."""
+    arc_pieces = validated_replication_arc_pieces(config, mt_length)
+    if not arc_pieces:
+        return {
+            "replication_arc_context": "not_configured",
+            "minor_arc_deleted_bp": "",
+            "major_arc_deleted_bp": "",
+        }
+
+    deleted_pieces = interval_pieces(left, right, mt_length)
+    overlaps = {
+        name: interval_overlap_bp(deleted_pieces, region_pieces)
+        for name, region_pieces in arc_pieces.items()
+    }
+
+    minor_bp = int(overlaps.get("minor_arc", 0))
+    major_bp = int(overlaps.get("major_arc", 0))
+    if minor_bp and major_bp:
+        context = "major_and_minor_arcs"
+    elif major_bp:
+        context = "major_arc_only"
+    elif minor_bp:
+        context = "minor_arc_only"
+    else:
+        other = sorted(name for name, overlap in overlaps.items() if overlap > 0)
+        context = "+".join(other) if other else "unassigned"
+    return {
+        "replication_arc_context": context,
+        "minor_arc_deleted_bp": minor_bp,
+        "major_arc_deleted_bp": major_bp,
+    }
+
+
 def canonical_breakpoints(left: int, right: int, mt_length: int) -> dict:
     """Return the shorter circular interval between an unordered breakpoint pair."""
     left = int(left)
