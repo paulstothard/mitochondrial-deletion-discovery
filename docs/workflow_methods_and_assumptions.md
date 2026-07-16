@@ -207,7 +207,9 @@ observation selector can add an absolute raw-evidence cutoff; `Auto` reports the
 lowest raw count among calls retained by the support slider, and moving that slider
 returns the selector to `Auto`. Reset restores the baseline PDF display set.
 
-Circular group-comparison views load the delivered exact-deletion comparison rows.
+Circular group-comparison views load delivered exact-deletion comparison rows with
+at least one supporting observation across the two compared groups. Zero-versus-zero
+rows remain in the complete comparison TSV but do not produce chords.
 The replicate-significant view applies replicate-level BH q <= 0.05 and is the
 appropriate preset for biological group conclusions. The unadjusted replicate-p
 view is exploratory. The read-depth BH view is technical count evidence rather than

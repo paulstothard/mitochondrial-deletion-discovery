@@ -846,6 +846,37 @@ class CoreTests(unittest.TestCase):
             }.issubset(calls.columns)
         )
 
+    def test_circular_comparison_plot_excludes_group_pairs_without_evidence(self):
+        comparison = pd.DataFrame(
+            [
+                {
+                    "exact_deletion_id": "mtDel_zero",
+                    "left_group": "control",
+                    "right_group": "treated",
+                    "left_breakpoint": 100,
+                    "right_breakpoint": 300,
+                    "deleted_size": 199,
+                    "difference_per_million_mt_reads": 0.0,
+                    "left_total_supporting_reads": 0,
+                    "right_total_supporting_reads": 0,
+                },
+                {
+                    "exact_deletion_id": "mtDel_supported",
+                    "left_group": "control",
+                    "right_group": "treated",
+                    "left_breakpoint": 400,
+                    "right_breakpoint": 700,
+                    "deleted_size": 299,
+                    "difference_per_million_mt_reads": 0.5,
+                    "left_total_supporting_reads": 0,
+                    "right_total_supporting_reads": 2,
+                },
+            ]
+        )
+        calls = prepare_comparison_calls(comparison, {}, genome_length=1000)
+        self.assertEqual(calls["exact_deletion_id"].tolist(), ["mtDel_supported"])
+        self.assertEqual(calls["_total_supporting_observations"].tolist(), [2])
+
     def test_report_circular_chord_panels_include_interactive_controls(self):
         import tempfile
 

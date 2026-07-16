@@ -725,6 +725,7 @@ def prepare_comparison_calls(comparison: pd.DataFrame, config: dict, genome_leng
     out["_total_supporting_observations"] = (
         out["left_total_supporting_reads"].fillna(0) + out["right_total_supporting_reads"].fillna(0)
     ).astype(int)
+    out = out[out["_total_supporting_observations"] >= 1].copy()
     ranked = []
     for _, pair in out.groupby(["left_group", "right_group"], sort=False, dropna=False):
         pair = pair.sort_values(

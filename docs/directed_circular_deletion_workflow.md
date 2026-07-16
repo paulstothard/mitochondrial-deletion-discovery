@@ -218,10 +218,12 @@ Circular breakpoint-chord displays join the directed retained breakpoints of the
 same exact-deletion objects used by the rainfall plots and tables. Baseline PDFs use
 the rainfall support threshold and per-group count cap. Interactive HTML views may
 load all threshold-eligible calls before that cap and apply display-only support or
-observation filters. Exact-deletion comparison chord views operate on the delivered
-comparison table; replicate-level, exploratory, and read-depth presets retain their
-distinct statistical meanings. Display controls do not alter calls or create
-statistical significance. Linear and circular feature depictions share one palette:
+observation filters. Exact-deletion comparison chord views operate on delivered
+comparison rows with at least one supporting observation across the two compared
+groups; zero-versus-zero rows remain in the complete comparison TSV but are not
+drawn. Replicate-level, exploratory, and read-depth presets retain their distinct
+statistical meanings. Display controls do not alter calls or create statistical
+significance. Linear and circular feature depictions share one palette:
 D-loop/control region coral, protein-coding genes green, rRNA cyan, and tRNA purple.
 
 Each report records:
