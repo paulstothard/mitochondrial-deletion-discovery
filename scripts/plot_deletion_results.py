@@ -1282,6 +1282,12 @@ def endpoint_density_figure(
         draw_location_feature_track(feature_ax, plot_features, genome_length, x_min=1, x_max=genome_length)
         feature_ax.set_xlabel("Mitochondrial genome coordinate (bp)")
         return fig
+    # Retain the exact plotted aggregation for the report's interactive SVG
+    # sidecar; the static PDF and its smoothing remain unchanged.
+    fig._endpoint_density = density.copy()
+    fig._endpoint_density_bin_size = int(bin_size)
+    fig._endpoint_density_support_label = support_label
+    fig._endpoint_density_capped = bool(capped)
     x = density["bin_midpoint"].to_numpy(dtype=float)
     raw_left = density["left_support"].to_numpy(dtype=float)
     raw_right = density["right_support"].to_numpy(dtype=float)
@@ -1381,6 +1387,16 @@ def endpoint_density_pages(
             capped=capped,
         )
         save_location_sidecar(fig, path, group)
+        density = getattr(fig, "_endpoint_density", pd.DataFrame())
+        if not density.empty:
+            save_endpoint_density_interactive_sidecar(
+                fig,
+                ax=fig.axes[0],
+                path=path,
+                group=group,
+                density=density,
+                support_label=support_label,
+            )
         figures.append(fig)
     write_location_plot_pages(figures, path)
     for fig in figures:
@@ -1500,6 +1516,88 @@ def save_rainfall_interactive_sidecar(
     )
     svg = svg[: root_end + len(metadata) + 1] + style + svg[root_end + len(metadata) + 1 :]
     overlay = '<g id="rainfall-interactive-points">' + "".join(circles) + "</g>"
+    svg = svg.replace("</svg>", overlay + "</svg>")
+    sidecar.write_text(svg, encoding="utf-8")
+
+
+def save_endpoint_density_interactive_sidecar(
+    fig: plt.Figure,
+    ax: plt.Axes,
+    path: str,
+    group: str,
+    density: pd.DataFrame,
+    support_label: str,
+) -> None:
+    """Write transparent bin hit-targets over the static density plot SVG."""
+    if density.empty:
+        return
+    sidecar = Path(path).with_name(f"{Path(path).stem}__{safe_filename(group)}__interactive.svg")
+    ensure_parent(sidecar)
+    fig.canvas.draw()
+    canvas_width, canvas_height = fig.canvas.get_width_height()
+    temporary = sidecar.with_suffix(".tmp.svg")
+    fig.savefig(temporary, format="svg")
+    svg = temporary.read_text(encoding="utf-8")
+    temporary.unlink(missing_ok=True)
+    viewbox_match = re.search(r'<svg\b[^>]*\bviewBox="0 0 ([0-9.eE+-]+) ([0-9.eE+-]+)"', svg)
+    root_match = re.search(r"<svg\b[^>]*>", svg)
+    if not viewbox_match or not root_match:
+        return
+    viewbox_width = float(viewbox_match.group(1))
+    viewbox_height = float(viewbox_match.group(2))
+    scale_x = viewbox_width / float(canvas_width)
+    scale_y = viewbox_height / float(canvas_height)
+    x_min, x_max = ax.get_xlim()
+    y_min, y_max = ax.get_ylim()
+    x_min_px = ax.transData.transform((x_min, y_min))[0]
+    x_max_px = ax.transData.transform((x_max, y_min))[0]
+    y_bottom_px = ax.transData.transform((x_min, y_min))[1]
+    y_top_px = ax.transData.transform((x_min, y_max))[1]
+    y_svg = viewbox_height - max(y_bottom_px, y_top_px) * scale_y
+    height_svg = abs(y_top_px - y_bottom_px) * scale_y
+    rectangles = []
+    for _, row in density.iterrows():
+        start = float(row["bin_start"])
+        end = float(row["bin_end"])
+        left_px = ax.transData.transform((max(x_min, start), y_min))[0]
+        right_px = ax.transData.transform((min(x_max, end + 1), y_min))[0]
+        left_px = max(x_min_px, min(x_max_px, left_px))
+        right_px = max(x_min_px, min(x_max_px, right_px))
+        if right_px <= left_px:
+            continue
+        attrs = {
+            "class": "endpoint-density-bin",
+            "x": f"{left_px * scale_x:.3f}",
+            "y": f"{y_svg:.3f}",
+            "width": f"{(right_px - left_px) * scale_x:.3f}",
+            "height": f"{height_svg:.3f}",
+            "fill": "#285f8f",
+            "fill-opacity": "0",
+            "data-group": group,
+            "data-bin-start": row.get("bin_start", ""),
+            "data-bin-end": row.get("bin_end", ""),
+            "data-bin-midpoint": row.get("bin_midpoint", ""),
+            "data-left-endpoint-count": row.get("left_endpoint_count", ""),
+            "data-right-endpoint-count": row.get("right_endpoint_count", ""),
+            "data-endpoint-count": row.get("endpoint_count", ""),
+            "data-left-support": row.get("left_support", ""),
+            "data-right-support": row.get("right_support", ""),
+            "data-summed-support": row.get("summed_support", ""),
+            "data-smoothed-support": row.get("smoothed_summed_support", ""),
+            "data-smoothed-endpoint-count": row.get("smoothed_endpoint_count", ""),
+            "data-support-label": support_label,
+        }
+        rendered = " ".join(f'{key}="{svg_attribute_value(value)}"' for key, value in attrs.items())
+        rectangles.append(f"<rect {rendered}/>")
+    metadata = (
+        f' data-plot-type="endpoint-density" data-group="{svg_attribute_value(group)}"'
+        f' data-bin-count="{len(rectangles)}" data-support-label="{svg_attribute_value(support_label)}"'
+    )
+    root_end = root_match.end() - 1
+    svg = svg[:root_end] + metadata + svg[root_end:]
+    style = '<style>.endpoint-density-bin{cursor:help;}.endpoint-density-bin:hover{fill-opacity:.08;}</style>'
+    svg = svg[: root_end + len(metadata) + 1] + style + svg[root_end + len(metadata) + 1 :]
+    overlay = '<g id="endpoint-density-interactive-bins">' + "".join(rectangles) + "</g>"
     svg = svg.replace("</svg>", overlay + "</svg>")
     sidecar.write_text(svg, encoding="utf-8")
 

@@ -33,13 +33,16 @@
     .filter-status { color: #52606d; font-size: 13px; grid-column: 1 / -1; }
     .control-note { color: #66788a; font-size: 12px; line-height: 1.4; margin: 0 0 8px; }
     .circular_breakpoint_chords_all .plot-svg,
-    .exact_deletion_comparison_chords .plot-svg { max-width: 1180px; }
+    .exact_deletion_comparison_chords .plot-svg,
+    .endpoint-density-plot .plot-svg { max-width: 1180px; }
     .circular_breakpoint_chords_all .plot-svg svg,
-    .exact_deletion_comparison_chords .plot-svg svg { width: 100%; height: auto; max-height: 900px; }
+    .exact_deletion_comparison_chords .plot-svg svg,
+    .endpoint-density-plot .plot-svg svg { width: 100%; height: auto; max-height: 900px; }
     .deletion-chord, .comparison-chord, .mt-feature { cursor: help; }
     .deletion-chord:hover path:not(.chord-hit-target) { opacity: 1 !important; stroke-width: 1.6 !important; }
     .comparison-chord:hover path:not(.chord-hit-target) { opacity: 1 !important; stroke-width: 1.7 !important; }
     .rainfall-point { cursor: help; }
+    .endpoint-density-bin { cursor: help; }
     .mt-feature:hover path { stroke: #172b4d !important; stroke-width: 1.2 !important; }
     .hover-tooltip { background: rgba(24, 38, 55, 0.96); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 5px; box-shadow: 0 5px 18px rgba(15, 23, 42, 0.24); color: white; display: none; font-size: 12px; line-height: 1.35; max-width: 330px; padding: 9px 11px; pointer-events: none; position: fixed; z-index: 1000; }
     .hover-tooltip strong { display: block; font-size: 12.5px; margin-bottom: 4px; }

@@ -256,6 +256,17 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         addTooltipRow('Major/minor arc bp', `${formatTooltipNumber(target.dataset.majorArcBp)} / ${formatTooltipNumber(target.dataset.minorArcBp)}`);
         addTooltipRow('Origin-spanning', target.dataset.crossesOrigin || 'NA');
         if (target.dataset.knownDeletion) addTooltipRow('Configured match', target.dataset.knownDeletion.replaceAll('_', ' '));
+      } else if (target.classList.contains('endpoint-density-bin')) {
+        heading.textContent = `${formatTooltipNumber(target.dataset.binStart)}-${formatTooltipNumber(target.dataset.binEnd)} bp`;
+        hoverTooltip.appendChild(heading);
+        addTooltipRow('Group', target.dataset.group || 'NA');
+        addTooltipRow('Bin midpoint', `${formatTooltipNumber(target.dataset.binMidpoint)} bp`);
+        addTooltipRow('Left endpoints', `${formatTooltipNumber(target.dataset.leftEndpointCount)} (${formatTooltipNumber(target.dataset.leftSupport)} support)`);
+        addTooltipRow('Right endpoints', `${formatTooltipNumber(target.dataset.rightEndpointCount)} (${formatTooltipNumber(target.dataset.rightSupport)} support)`);
+        addTooltipRow('Total raw endpoints', formatTooltipNumber(target.dataset.endpointCount));
+        addTooltipRow('Total raw support', formatTooltipNumber(target.dataset.summedSupport));
+        addTooltipRow('Smoothed support', formatTooltipNumber(target.dataset.smoothedSupport));
+        addTooltipRow('Smoothed endpoint count', formatTooltipNumber(target.dataset.smoothedEndpointCount));
       } else if (target.classList.contains('comparison-chord')) {
         heading.textContent = `Comparison rank ${target.dataset.rank}: ${target.dataset.deletionId}`;
         hoverTooltip.appendChild(heading);
@@ -299,7 +310,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
 
     document.addEventListener('pointerover', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('.rainfall-point, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       if (!target) return;
       populateTooltip(target);
@@ -311,10 +322,10 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
     });
     document.addEventListener('pointerout', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('.rainfall-point, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       const related = event.relatedTarget instanceof Element
-        ? event.relatedTarget.closest('.rainfall-point, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.relatedTarget.closest('.rainfall-point, .endpoint-density-bin, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       if (target && target !== related) hoverTooltip.style.display = 'none';
     });

@@ -1045,6 +1045,43 @@ def rainfall_location_plot_panel(path: str, title: str, caption: str, link_prefi
     """
 
 
+def endpoint_density_plot_panel(path: str, title: str, caption: str, link_prefix: str) -> str:
+    aggregate = Path(path)
+    interactive_svgs = sorted(aggregate.parent.glob(f"{aggregate.stem}__*__interactive.svg"))
+    if not interactive_svgs:
+        return ""
+    subpanels = []
+    for svg_path in interactive_svgs:
+        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        fallback_group = svg_path.stem.removeprefix(f"{aggregate.stem}__").removesuffix("__interactive")
+        group = svg_data_attribute(svg, "group", fallback_group.replace("_", " "))
+        static_pdf = svg_path.with_name(svg_path.name.replace("__interactive.svg", ".pdf"))
+        bin_count = svg_data_attribute(svg, "bin-count", "0")
+        subpanels.append(
+            f"""
+            <div class="plot-subpanel endpoint-density-plot-panel">
+              <div class="plot-title-row">
+                <h4>{html.escape(group)}</h4>
+                <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(static_pdf.name)}">Open PDF</a>
+              </div>
+              <div class="control-note">Hover a density bin to inspect its coordinate interval, left/right endpoint support and counts, total raw support, and circular-smoothed support ({html.escape(bin_count)} bins). The PDF is a static view of the same calculation.</div>
+              <div class="plot-svg">{svg}</div>
+            </div>
+            """
+        )
+    return f"""
+    <article class="plot-panel endpoint-density-plot">
+      <div class="plot-title-row">
+        <h3>{html.escape(title)}</h3>
+        <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(aggregate.name)}">Open multipage PDF</a>
+      </div>
+      <p>{html.escape(caption)}</p>
+      <div class="control-guidance"><strong>Inspecting breakpoint density</strong><p>The bars and smooth curve summarize the same fixed coordinate bins used in the PDF. Hovering reports the raw left/right endpoint contributions and the smoothed value without changing the plotted calculation.</p></div>
+      {''.join(subpanels)}
+    </article>
+    """
+
+
 def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") -> str:
     if Path(path).stem == "circular_breakpoint_chords_all":
         panel = circular_location_plot_panel(path, title, caption, link_prefix)
@@ -1060,6 +1097,13 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
         "deletion_rainfall_midpoint",
     }:
         panel = rainfall_location_plot_panel(path, title, caption, link_prefix)
+        if panel:
+            return panel
+    if Path(path).stem in {
+        "pooled_breakpoint_support_density",
+        "pooled_breakpoint_support_density_capped",
+    }:
+        panel = endpoint_density_plot_panel(path, title, caption, link_prefix)
         if panel:
             return panel
     svg_path = Path(path).with_suffix(".svg")

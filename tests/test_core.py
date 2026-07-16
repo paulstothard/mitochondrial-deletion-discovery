@@ -34,6 +34,7 @@ from plot_deletion_results import (
     draw_location_feature_track,
     endpoint_density_figure,
     endpoint_density_hotspots,
+    endpoint_density_pages,
     location_rainfall,
     location_features,
     mitochondrial_axis_bounds,
@@ -54,6 +55,7 @@ from make_deletion_report import (
     assumptions_section,
     circular_comparison_plot_panel,
     circular_location_plot_panel,
+    endpoint_density_plot_panel,
     rainfall_location_plot_panel,
     configured_replication_arc_table,
     exact_deletion_display_table,
@@ -1040,6 +1042,40 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(wide_size_ticks[-1], 1000.0)
         self.assertLess(len(wide_size_ticks), 7)
 
+    def test_endpoint_density_interactive_sidecar_has_bin_hover_metadata(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pooled_breakpoint_support_density.pdf"
+            calls = pd.DataFrame(
+                [
+                    {"_plot_group": "treated", "left_breakpoint": 100, "right_breakpoint": 250, "_plot_support": 2.0},
+                    {"_plot_group": "treated", "left_breakpoint": 150, "right_breakpoint": 650, "_plot_support": 3.0},
+                ]
+            )
+            endpoint_density_pages(
+                calls,
+                ["treated"],
+                pd.DataFrame(),
+                {},
+                1000,
+                str(path),
+                "Pooled Breakpoint Support Density",
+                "Normalized support",
+                bin_size=100,
+                smooth_bins=3,
+            )
+            interactive = path.with_name("pooled_breakpoint_support_density__treated__interactive.svg")
+            svg = interactive.read_text(encoding="utf-8")
+            self.assertEqual(svg.count('class="endpoint-density-bin"'), 10)
+            self.assertIn('data-plot-type="endpoint-density"', svg)
+            self.assertIn('data-bin-start="101.0"', svg)
+            self.assertIn('data-left-support="2.0"', svg)
+            self.assertIn('data-smoothed-support=', svg)
+
+            panel = endpoint_density_plot_panel(str(path), "Density", "Caption", "plots")
+            self.assertIn("Hover a density bin", panel)
+            self.assertIn("10 bins", panel)
     def test_pooled_endpoint_density_tracks_left_and_right_support(self):
         calls = pd.DataFrame(
             [
