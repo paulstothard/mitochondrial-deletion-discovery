@@ -213,6 +213,7 @@ def add_svg_chord_metadata(
     subset_label: str,
     group: str,
     baseline_ids: set[str] | None = None,
+    support_label: str = "Deletion support",
 ) -> None:
     """Attach filter values and hover text to the Matplotlib chord groups."""
     ET.register_namespace("", "http://www.w3.org/2000/svg")
@@ -220,6 +221,7 @@ def add_svg_chord_metadata(
     tree = ET.parse(svg_path)
     root = tree.getroot()
     root.set("data-group", group)
+    root.set("data-support-label", support_label)
     nodes_by_id = {node.get("id"): node for node in root.iter() if node.get("id")}
     for _, row in calls.iterrows():
         node_id = chord_dom_id(subset_label, group, row)
@@ -230,6 +232,7 @@ def add_svg_chord_metadata(
         observations = int(row["supporting_reads"])
         node.set("class", "deletion-chord")
         node.set("data-support", f"{support:.12g}")
+        node.set("data-support-label", support_label)
         node.set("data-observations", str(observations))
         node.set("data-rank", str(int(row["_support_rank"])))
         node.set("data-deletion-id", str(row["exact_deletion_id"]))
@@ -247,7 +250,7 @@ def add_svg_chord_metadata(
         )
         accessible_label = (
             f"rank {int(row['_support_rank'])}: {row['exact_deletion_id']}; "
-            f"normalized support {support:.4g}; {observations} supporting observations"
+            f"{support_label.lower()} {support:.4g}; {observations} supporting observations"
         )
         node.set("aria-label", accessible_label)
         description = ET.Element("{http://www.w3.org/2000/svg}desc")
@@ -668,6 +671,7 @@ def plot_chord_page(
         subset_label,
         group,
         baseline_ids=baseline_ids,
+        support_label=support_label,
     )
     add_svg_feature_metadata(output_stem.with_suffix(".svg"), features)
 

@@ -36,6 +36,7 @@ from plot_deletion_results import (
     endpoint_density_hotspots,
     endpoint_density_pages,
     breakpoint_pair_support_map,
+    burden_plot,
     location_rainfall,
     location_features,
     mitochondrial_axis_bounds,
@@ -46,6 +47,7 @@ from plot_deletion_results import (
     rainfall_support_limits,
     rainfall_y_axis_min,
     ordination,
+    factorial_interaction_plot,
     prepare_location_plot_data,
     support_legend_values,
     support_size_legend_values,
@@ -883,6 +885,7 @@ class CoreTests(unittest.TestCase):
             add_svg_chord_metadata(path, calls, "all", "treated")
             svg = path.read_text(encoding="utf-8")
         self.assertIn('data-affected-features="MT-ND1+MT-CO1"', svg)
+        self.assertIn('data-support-label="Deletion support"', svg)
 
     def test_circular_comparison_plot_accepts_a_zero_row_table(self):
         calls = prepare_comparison_calls(pd.DataFrame(), {}, genome_length=1000)
@@ -1059,12 +1062,15 @@ class CoreTests(unittest.TestCase):
             self.assertIn('data-crosses-origin="yes"', svg)
             self.assertIn('data-arc-context="major_and_minor_arcs"', svg)
             self.assertIn('data-call-count="2"', svg)
+            self.assertIn('data-support-label="Normalized support"', svg)
             self.assertNotIn("support rank within this group", svg)
 
             panel = rainfall_location_plot_panel(str(path), "Rainfall", "Caption", "plots")
             self.assertIn("data-rainfall-controls", panel)
             self.assertIn("data-rainfall-support-slider", panel)
+            self.assertIn("data-observation-filter", panel)
             self.assertIn('data-size-filter', panel)
+            self.assertIn('value="200">&ge; 200', panel)
             self.assertIn('value="1000">&ge; 1,000 bp', panel)
             self.assertIn('value="10000">&ge; 10,000 bp', panel)
             self.assertIn("eligible call set loaded for this view contains 2 calls", panel)
@@ -1099,8 +1105,8 @@ class CoreTests(unittest.TestCase):
             path = Path(tmp) / "pooled_breakpoint_support_density.pdf"
             calls = pd.DataFrame(
                 [
-                    {"_plot_group": "treated", "left_breakpoint": 100, "right_breakpoint": 250, "_plot_support": 2.0},
-                    {"_plot_group": "treated", "left_breakpoint": 150, "right_breakpoint": 650, "_plot_support": 3.0},
+                    {"_plot_group": "treated", "left_breakpoint": 100, "right_breakpoint": 250, "_plot_support": 2.0, "supporting_reads": 4},
+                    {"_plot_group": "treated", "left_breakpoint": 150, "right_breakpoint": 650, "_plot_support": 3.0, "supporting_reads": 5},
                 ]
             )
             endpoint_density_pages(
@@ -1121,11 +1127,27 @@ class CoreTests(unittest.TestCase):
             self.assertIn('data-plot-type="endpoint-density"', svg)
             self.assertIn('data-bin-start="101.0"', svg)
             self.assertIn('data-left-support="2.0"', svg)
+            self.assertIn('data-left-raw-supporting-reads="4.0"', svg)
             self.assertIn('data-smoothed-support=', svg)
 
             panel = endpoint_density_plot_panel(str(path), "Density", "Caption", "plots")
             self.assertIn("Hover a density bin", panel)
             self.assertIn("10 bins", panel)
+
+    def test_endpoint_density_separates_exact_call_count_from_raw_support(self):
+        calls = pd.DataFrame(
+            [
+                {"_plot_group": "treated", "left_breakpoint": 50, "right_breakpoint": 250, "_plot_support": 0.4, "supporting_reads": 110},
+                {"_plot_group": "treated", "left_breakpoint": 60, "right_breakpoint": 650, "_plot_support": 0.02, "supporting_reads": 2},
+            ]
+        )
+        density = pooled_endpoint_density(calls, genome_length=1000, bin_size=100, smooth_bins=1)
+        first = density.loc[density["bin_start"] == 1].iloc[0]
+        self.assertEqual(first["left_endpoint_count"], 2)
+        self.assertEqual(first["left_raw_supporting_reads"], 112)
+        self.assertAlmostEqual(first["left_support"], 0.42)
+        self.assertEqual(first["endpoint_count"], 2)
+        self.assertEqual(first["raw_supporting_reads"], 112)
 
     def test_breakpoint_pair_map_has_point_hover_metadata(self):
         import tempfile
@@ -1164,10 +1186,15 @@ class CoreTests(unittest.TestCase):
             self.assertIn('class="breakpoint-pair-point"', svg)
             self.assertIn('data-exact-deletion-id="mtDel_00900_00100_00200"', svg)
             self.assertIn('data-affected-features="MT-ND1+MT-CO1"', svg)
+            self.assertIn('data-rank="1"', svg)
+            self.assertIn('id="breakpoint-pair-rank-1"', svg)
             self.assertIn('data-plot-type="breakpoint-pair-map"', svg)
+            self.assertIn('data-support-label="Normalized support"', svg)
 
             panel = breakpoint_pair_plot_panel(str(path), "Breakpoint pairs", "Caption", "plots")
             self.assertIn("Hover a point to inspect its breakpoint pair", panel)
+            self.assertIn("data-breakpoint-pair-controls", panel)
+            self.assertIn('value="1000">&ge; 1,000 bp', panel)
             self.assertIn("Open PDF", panel)
 
     def test_ordination_report_panel_mentions_sample_hover(self):
@@ -1183,6 +1210,20 @@ class CoreTests(unittest.TestCase):
             )
             panel = plot_panel(str(path), "PCA", "Caption", "plots")
             self.assertIn("Hover a sample to inspect its coordinates", panel)
+
+    def test_sample_point_report_panel_mentions_sample_hover(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "burden.pdf"
+            path.write_bytes(b"pdf")
+            path.with_suffix(".svg").write_text(
+                '<svg data-plot-type="sample-points" data-point-count="1">'
+                '<circle class="sample-point" data-sample="S1"/></svg>',
+                encoding="utf-8",
+            )
+            panel = plot_panel(str(path), "Burden", "Caption", "plots")
+            self.assertIn("Hover a sample point to inspect", panel)
 
     def test_ordination_has_sample_hover_metadata(self):
         import tempfile
@@ -1211,6 +1252,51 @@ class CoreTests(unittest.TestCase):
             self.assertIn('data-plot-type="ordination"', svg)
             self.assertIn('data-sample="S1"', svg)
             self.assertIn('data-group="control"', svg)
+
+    def test_sample_point_plots_have_sample_hover_metadata(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            burden_path = Path(tmp) / "burden.pdf"
+            burden = pd.DataFrame(
+                {
+                    "sample": ["S1", "S2", "S3", "S4"],
+                    "group": ["control", "control", "deletion", "deletion"],
+                    "deletion_support_per_million_mt_reads": [1.0, 2.0, 3.0, 4.0],
+                    "biological_replicate": ["R1", "R2", "R1", "R2"],
+                    "layout": ["single"] * 4,
+                    "tissue": ["muscle"] * 4,
+                }
+            )
+            burden_plot(
+                burden,
+                "group",
+                str(burden_path),
+                "deletion_support_per_million_mt_reads",
+                "Burden",
+                "Normalized support",
+            )
+            burden_svg = burden_path.with_suffix(".svg").read_text(encoding="utf-8")
+            self.assertEqual(burden_svg.count('class="sample-point"'), 4)
+            self.assertIn('data-sample="S1"', burden_svg)
+            self.assertIn('data-biological-replicate="R1"', burden_svg)
+
+            factorial_path = Path(tmp) / "factorial.pdf"
+            factorial = burden.assign(
+                age=["young", "young", "old", "old"],
+                treatment=["control", "deletion", "control", "deletion"],
+            )
+            factorial_interaction_plot(
+                factorial,
+                str(factorial_path),
+                "deletion_support_per_million_mt_reads",
+                "Factorial",
+                "Normalized support",
+            )
+            factorial_svg = factorial_path.with_suffix(".svg").read_text(encoding="utf-8")
+            self.assertEqual(factorial_svg.count('class="sample-point"'), 4)
+            self.assertIn('data-age="young"', factorial_svg)
+            self.assertIn('data-treatment="deletion"', factorial_svg)
     def test_pooled_endpoint_density_tracks_left_and_right_support(self):
         calls = pd.DataFrame(
             [

@@ -210,6 +210,13 @@ observation selector can add an absolute raw-evidence cutoff; `Auto` reports the
 lowest raw count among calls retained by the support slider, and moving that slider
 returns the selector to `Auto`. Reset restores the baseline PDF display set.
 
+Pooled breakpoint support-density plots use the configured plotted support metric
+for bar heights and circular smoothing. The endpoint-count values shown in HTML
+hover metadata count distinct exact-deletion calls in each bin; they are not read
+counts. Raw supporting observations and plotted support are reported as separate
+fields so high-support calls can be distinguished from bins containing many
+low-support calls.
+
 Circular group-comparison views load delivered exact-deletion comparison rows with
 at least one supporting observation across the two compared groups. Zero-versus-zero
 rows remain in the complete comparison TSV but do not produce chords.

@@ -133,6 +133,79 @@ def save(fig: plt.Figure, path: str) -> None:
     plt.close(fig)
 
 
+def save_sample_points_interactive(
+    fig: plt.Figure,
+    ax: plt.Axes,
+    path: str,
+    points: list[dict[str, object]],
+    plot_type: str = "sample-points",
+) -> None:
+    """Save a sample-point plot with transparent SVG hit targets and metadata."""
+    ensure_parent(path)
+    fig.canvas.draw()
+    fig.savefig(path, bbox_inches="tight")
+    svg_path = Path(path).with_suffix(".svg")
+    temporary = svg_path.with_suffix(".tmp.svg")
+    fig.savefig(temporary, format="svg")
+    svg = temporary.read_text(encoding="utf-8")
+    temporary.unlink(missing_ok=True)
+    viewbox_match = re.search(
+        r'<svg\b[^>]*\bviewBox="([0-9.eE+-]+) ([0-9.eE+-]+) '
+        r'([0-9.eE+-]+) ([0-9.eE+-]+)"',
+        svg,
+    )
+    root_match = re.search(r"<svg\b[^>]*>", svg)
+    if not viewbox_match or not root_match:
+        svg_path.write_text(svg, encoding="utf-8")
+        plt.close(fig)
+        return
+    viewbox_width = float(viewbox_match.group(3))
+    viewbox_height = float(viewbox_match.group(4))
+    canvas_width, canvas_height = fig.canvas.get_width_height()
+    scale_x = viewbox_width / float(canvas_width)
+    scale_y = viewbox_height / float(canvas_height)
+    circles = []
+    for point in points:
+        try:
+            x_value = float(point.get("x", point.get("x_value")))
+            y_value = float(point.get("y", point.get("y_value")))
+        except (TypeError, ValueError, KeyError):
+            continue
+        display_x, display_y = ax.transData.transform((x_value, y_value))
+        attrs = {
+            "class": "sample-point",
+            "cx": f"{display_x * scale_x:.3f}",
+            "cy": f"{viewbox_height - display_y * scale_y:.3f}",
+            "r": f"{max(5.5, np.sqrt(95.0 / np.pi)) * scale_x:.3f}",
+            "fill": "#285f8f",
+            "fill-opacity": "0",
+            "stroke": "transparent",
+            "data-sample": point.get("sample", ""),
+            "data-group": point.get("group", ""),
+            "data-x-label": point.get("x_label", "X"),
+            "data-x-value": point.get("x_value", x_value),
+            "data-y-label": point.get("y_label", "Y"),
+            "data-y-value": point.get("y_value", y_value),
+            "data-biological-replicate": point.get("biological_replicate", ""),
+            "data-layout": point.get("layout", ""),
+            "data-tissue": point.get("tissue", ""),
+            "data-age": point.get("age", ""),
+            "data-treatment": point.get("treatment", ""),
+        }
+        rendered = " ".join(f'{key}="{svg_attribute_value(value)}"' for key, value in attrs.items())
+        circles.append(f"<circle {rendered}/>")
+    root_end = root_match.end() - 1
+    metadata = ' data-plot-type="{}" data-point-count="{}"'.format(
+        svg_attribute_value(plot_type), len(circles)
+    )
+    svg = svg[:root_end] + metadata + svg[root_end:]
+    style = '<style>.sample-point{cursor:help;}.sample-point:hover{stroke:#172b4d;stroke-width:2;fill-opacity:.16;}</style>'
+    svg = svg[: root_end + len(metadata) + 1] + style + svg[root_end + len(metadata) + 1 :]
+    svg = svg.replace("</svg>", '<g id="sample-interactive-points">' + "".join(circles) + "</g></svg>")
+    svg_path.write_text(svg, encoding="utf-8")
+    plt.close(fig)
+
+
 def save_ordination_interactive(
     fig: plt.Figure,
     ax: plt.Axes,
@@ -758,15 +831,58 @@ def sample_group_order(samples: pd.DataFrame, group_col: str) -> list[str]:
     return samples.sort_values("sample")["sample"].tolist()
 
 
+def sample_point_metadata(
+    row: pd.Series,
+    *,
+    group: object,
+    x_label: object,
+    x_value: object,
+    y_label: object,
+    y_value: object,
+) -> dict[str, object]:
+    """Build the common metadata payload used by sample-point hover targets."""
+    return {
+        "sample": row.get("sample", ""),
+        "group": group,
+        "x_label": x_label,
+        "x_value": x_value,
+        "y_label": y_label,
+        "y_value": y_value,
+        "biological_replicate": row.get("biological_replicate", ""),
+        "layout": row.get("layout", ""),
+        "tissue": row.get("tissue", ""),
+        "age": row.get("age", ""),
+        "treatment": row.get("treatment", ""),
+    }
+
+
 def burden_plot(burden: pd.DataFrame, group_col: str, path: str, y: str, title: str, ylabel: str) -> None:
     if burden.empty or y not in burden.columns:
         empty(path, title, "No sample-level burden values are available")
         return
     fig, ax = plt.subplots(figsize=(9, 5))
     pal = palette(burden, group_col)
+    sample_points: list[dict[str, object]] = []
     if group_col and group_col in burden.columns:
         order = ordered_groups(burden, group_col)
         sns.stripplot(data=burden, x=group_col, y=y, hue=group_col, order=order, hue_order=order, palette=pal, size=7, jitter=0.18, ax=ax, legend=False)
+        # One collection is emitted per group; retain the actual jittered
+        # coordinates so the hit target follows the visible sample point.
+        for group_index, group in enumerate(order):
+            collection = ax.collections[group_index] if group_index < len(ax.collections) else None
+            offsets = collection.get_offsets() if collection is not None else []
+            rows = burden[burden[group_col].fillna("missing").astype(str) == str(group)].reset_index(drop=True)
+            for row, offset in zip(rows.to_dict("records"), offsets):
+                point = sample_point_metadata(
+                    pd.Series(row),
+                    group=group,
+                    x_label=group_col,
+                    x_value=group,
+                    y_label=ylabel,
+                    y_value=offset[1],
+                )
+                point.update({"x": offset[0], "y": offset[1]})
+                sample_points.append(point)
         group_sizes = burden.groupby(group_col)["sample"].count() if "sample" in burden.columns else burden.groupby(group_col).size()
         show_ci = not group_sizes.empty and int(group_sizes.min()) >= 3
         sns.pointplot(
@@ -791,7 +907,10 @@ def burden_plot(burden: pd.DataFrame, group_col: str, path: str, y: str, title: 
         ax.set_xlabel("sample")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
-    save(fig, path)
+    if sample_points:
+        save_sample_points_interactive(fig, ax, path, sample_points)
+    else:
+        save(fig, path)
 
 
 def factorial_interaction_plot(burden: pd.DataFrame, path: str, y: str, title: str, ylabel: str) -> None:
@@ -818,6 +937,29 @@ def factorial_interaction_plot(burden: pd.DataFrame, path: str, y: str, title: s
         palette=pal,
         ax=ax,
     )
+    sample_points: list[dict[str, object]] = []
+    collections = list(ax.collections)
+    collection_index = 0
+    for age in ages:
+        for treatment in treatments:
+            collection = collections[collection_index] if collection_index < len(collections) else None
+            offsets = collection.get_offsets() if collection is not None else []
+            rows = burden[
+                (burden["age"].astype(str) == str(age))
+                & (burden["treatment"].astype(str) == str(treatment))
+            ].reset_index(drop=True)
+            for row, offset in zip(rows.to_dict("records"), offsets):
+                point = sample_point_metadata(
+                    pd.Series(row),
+                    group=treatment,
+                    x_label="age",
+                    x_value=age,
+                    y_label=ylabel,
+                    y_value=offset[1],
+                )
+                point.update({"x": offset[0], "y": offset[1]})
+                sample_points.append(point)
+            collection_index += 1
     summary = burden.groupby(["age", "treatment"], as_index=False)[y].mean()
     sns.pointplot(
         data=summary,
@@ -840,7 +982,7 @@ def factorial_interaction_plot(burden: pd.DataFrame, path: str, y: str, title: s
     ax.set_xlabel("Age")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
-    save(fig, path)
+    save_sample_points_interactive(fig, ax, path, sample_points)
 
 
 def size_distribution(reads: pd.DataFrame, samples: pd.DataFrame, group_col: str, path: str, title: str, weighted: bool, log_y: bool = False, size_min: int | None = None, size_max: int | None = None) -> None:
@@ -1239,17 +1381,24 @@ def circular_rolling_mean(values: np.ndarray, window: int) -> np.ndarray:
 
 def pooled_endpoint_density(display_grouped: pd.DataFrame, genome_length: int, bin_size: int, smooth_bins: int) -> pd.DataFrame:
     if display_grouped.empty or genome_length <= 0:
-        return pd.DataFrame(columns=["bin_index", "endpoint_count", "left_endpoint_count", "right_endpoint_count", "summed_support", "left_support", "right_support", "bin_start", "bin_end", "bin_midpoint", "smoothed_summed_support", "smoothed_endpoint_count"])
+        return pd.DataFrame(columns=["bin_index", "endpoint_count", "left_endpoint_count", "right_endpoint_count", "summed_support", "left_support", "right_support", "raw_supporting_reads", "left_raw_supporting_reads", "right_raw_supporting_reads", "bin_start", "bin_end", "bin_midpoint", "smoothed_summed_support", "smoothed_endpoint_count"])
     bin_size = max(1, int(bin_size))
+    def endpoint_rows(breakpoint_column: str, side: str) -> pd.DataFrame:
+        frame = display_grouped[[breakpoint_column, "_plot_support"]].rename(columns={breakpoint_column: "coordinate"}).copy()
+        if "supporting_reads" in display_grouped.columns:
+            frame["raw_supporting_reads"] = pd.to_numeric(display_grouped["supporting_reads"], errors="coerce").to_numpy()
+        else:
+            frame["raw_supporting_reads"] = np.nan
+        frame["endpoint_side"] = side
+        return frame
+
     endpoints = pd.concat(
-        [
-            display_grouped[["left_breakpoint", "_plot_support"]].rename(columns={"left_breakpoint": "coordinate"}).assign(endpoint_side="left"),
-            display_grouped[["right_breakpoint", "_plot_support"]].rename(columns={"right_breakpoint": "coordinate"}).assign(endpoint_side="right"),
-        ],
+        [endpoint_rows("left_breakpoint", "left"), endpoint_rows("right_breakpoint", "right")],
         ignore_index=True,
     )
     endpoints["coordinate"] = pd.to_numeric(endpoints["coordinate"], errors="coerce")
     endpoints["support"] = pd.to_numeric(endpoints["_plot_support"], errors="coerce")
+    endpoints["raw_supporting_reads"] = pd.to_numeric(endpoints["raw_supporting_reads"], errors="coerce")
     endpoints = endpoints.dropna(subset=["coordinate", "support"])
     endpoints = endpoints[(endpoints["coordinate"] >= 1) & (endpoints["coordinate"] <= genome_length)]
     endpoints["bin_index"] = ((endpoints["coordinate"] - 1) // bin_size).astype(int)
@@ -1257,7 +1406,7 @@ def pooled_endpoint_density(display_grouped: pd.DataFrame, genome_length: int, b
     base = pd.DataFrame({"bin_index": np.arange(n_bins, dtype=int)})
     side = (
         endpoints.groupby(["bin_index", "endpoint_side"], as_index=False)
-        .agg(endpoint_count=("coordinate", "size"), support=("support", "sum"))
+        .agg(endpoint_count=("coordinate", "size"), support=("support", "sum"), raw_supporting_reads=("raw_supporting_reads", "sum"))
     )
     counts = side.pivot_table(index="bin_index", columns="endpoint_side", values="endpoint_count", aggfunc="sum", fill_value=0)
     support = side.pivot_table(index="bin_index", columns="endpoint_side", values="support", aggfunc="sum", fill_value=0)
@@ -1266,8 +1415,12 @@ def pooled_endpoint_density(display_grouped: pd.DataFrame, genome_length: int, b
     agg["right_endpoint_count"] = counts.get("right", pd.Series(0, index=counts.index)).reindex(agg["bin_index"], fill_value=0).to_numpy()
     agg["left_support"] = support.get("left", pd.Series(0, index=support.index)).reindex(agg["bin_index"], fill_value=0).to_numpy()
     agg["right_support"] = support.get("right", pd.Series(0, index=support.index)).reindex(agg["bin_index"], fill_value=0).to_numpy()
+    raw_support = side.pivot_table(index="bin_index", columns="endpoint_side", values="raw_supporting_reads", aggfunc="sum", fill_value=0)
+    agg["left_raw_supporting_reads"] = raw_support.get("left", pd.Series(0, index=raw_support.index)).reindex(agg["bin_index"], fill_value=0).to_numpy()
+    agg["right_raw_supporting_reads"] = raw_support.get("right", pd.Series(0, index=raw_support.index)).reindex(agg["bin_index"], fill_value=0).to_numpy()
     agg["endpoint_count"] = agg["left_endpoint_count"] + agg["right_endpoint_count"]
     agg["summed_support"] = agg["left_support"] + agg["right_support"]
+    agg["raw_supporting_reads"] = agg["left_raw_supporting_reads"] + agg["right_raw_supporting_reads"]
     out = agg
     out["bin_start"] = out["bin_index"] * bin_size + 1
     out["bin_end"] = np.minimum(out["bin_start"] + bin_size - 1, genome_length)
@@ -1367,8 +1520,8 @@ def endpoint_density_figure(
     raw = density["summed_support"].to_numpy(dtype=float)
     y = density["smoothed_summed_support"].to_numpy(dtype=float)
     width = max(1, int(bin_size)) * 0.88
-    ax.bar(x, raw_left, width=width, color="#4E79A7", alpha=0.42, edgecolor="none", label=f"left endpoints, {int(bin_size)} bp bins", zorder=1)
-    ax.bar(x, raw_right, width=width, bottom=raw_left, color="#F28E2B", alpha=0.42, edgecolor="none", label=f"right endpoints, {int(bin_size)} bp bins", zorder=1)
+    ax.bar(x, raw_left, width=width, color="#4E79A7", alpha=0.42, edgecolor="none", label=f"left endpoint support, {int(bin_size)} bp bins", zorder=1)
+    ax.bar(x, raw_right, width=width, bottom=raw_left, color="#F28E2B", alpha=0.42, edgecolor="none", label=f"right endpoint support, {int(bin_size)} bp bins", zorder=1)
     ax.fill_between(x, y, color="#111111", alpha=0.08, linewidth=0, zorder=2)
     ax.plot(x, y, color="#222222", linewidth=1.6, label="circular-smoothed pooled support", zorder=3)
     finite_heights = np.r_[raw, y]
@@ -1398,7 +1551,7 @@ def endpoint_density_figure(
         fontsize=9,
         color="#4b5563",
     )
-    ax.set_ylabel("Summed deletion support at endpoints")
+    ax.set_ylabel(f"Summed {support_label.lower()} at endpoints")
     ax.grid(axis="both", color="#d9dee7", linewidth=0.65, alpha=0.55)
     ax.legend(loc="upper right", frameon=True, fontsize=8)
     label_ceiling = ax.get_ylim()[1]
@@ -1514,6 +1667,7 @@ def save_rainfall_interactive_sidecar(
     support_max: float,
     support_norm: colors.Normalize,
     cmap,
+    support_label: str = "Deletion support",
 ) -> None:
     """Write a full-call SVG with point metadata for the report controls.
 
@@ -1563,6 +1717,7 @@ def save_rainfall_interactive_sidecar(
             "data-right-breakpoint": row.get("right_breakpoint", ""),
             "data-deleted-size": row.get("deleted_size", ""),
             "data-support": row.get("_plot_support", ""),
+            "data-support-label": support_label,
             "data-supporting-reads": row.get("supporting_reads", ""),
             "data-crosses-origin": "yes" if bool(row.get("crosses_origin", False)) else "no",
             "data-affected-features": row.get("affected_feature_label", row.get("affected_features", "")),
@@ -1579,7 +1734,7 @@ def save_rainfall_interactive_sidecar(
     metadata = (
         f' data-plot-type="rainfall" data-group="{svg_attribute_value(group)}"'
         f' data-call-count="{len(work)}" data-support-min="{svg_attribute_value(support_min)}"'
-        f' data-support-max="{svg_attribute_value(support_max)}"'
+        f' data-support-max="{svg_attribute_value(support_max)}" data-support-label="{svg_attribute_value(support_label)}"'
     )
     root_end = root_match.end() - 1
     svg = svg[:root_end] + metadata + svg[root_end:]
@@ -1656,6 +1811,9 @@ def save_endpoint_density_interactive_sidecar(
             "data-left-support": row.get("left_support", ""),
             "data-right-support": row.get("right_support", ""),
             "data-summed-support": row.get("summed_support", ""),
+            "data-left-raw-supporting-reads": row.get("left_raw_supporting_reads", ""),
+            "data-right-raw-supporting-reads": row.get("right_raw_supporting_reads", ""),
+            "data-raw-supporting-reads": row.get("raw_supporting_reads", ""),
             "data-smoothed-support": row.get("smoothed_summed_support", ""),
             "data-smoothed-endpoint-count": row.get("smoothed_endpoint_count", ""),
             "data-support-label": support_label,
@@ -1683,6 +1841,7 @@ def save_breakpoint_pair_interactive_sidecar(
     pairs: pd.DataFrame,
     support_min: float,
     support_max: float,
+    support_label: str = "Deletion support",
 ) -> None:
     """Write transparent point hit targets over the breakpoint-pair map SVG."""
     if pairs.empty:
@@ -1733,7 +1892,9 @@ def save_breakpoint_pair_interactive_sidecar(
             "data-adjusted-right-breakpoint": row.get("adjusted_right_breakpoint", ""),
             "data-support": row.get("_plot_support", ""),
             "data-supporting-observations": row.get("supporting_reads", ""),
+            "data-support-label": support_label,
             "data-pair-count": row.get("pair_count", ""),
+            "data-rank": row.get("_support_rank", ""),
             "data-crosses-origin": "yes" if bool(row.get("crosses_origin", False)) else "no",
             "data-affected-features": "" if pd.isna(affected) else affected,
             "data-arc-context": row.get("replication_arc_context", ""),
@@ -1744,7 +1905,7 @@ def save_breakpoint_pair_interactive_sidecar(
         circles.append(f"<circle {rendered}/>")
     metadata = (
         f' data-plot-type="breakpoint-pair-map" data-group="{svg_attribute_value(group)}"'
-        f' data-point-count="{len(circles)}"'
+        f' data-point-count="{len(circles)}" data-support-label="{svg_attribute_value(support_label)}"'
     )
     root_end = root_match.end() - 1
     svg = svg[:root_end] + metadata + svg[root_end:]
@@ -1983,6 +2144,7 @@ def draw_location_rank_labels(
             clip_on=True,
             zorder=20,
         )
+        ax.texts[-1].set_gid(f"breakpoint-pair-rank-{rank}")
         occupied.append(label_box)
         labeled += 1
     return labeled
@@ -2071,6 +2233,7 @@ def location_rainfall(
             support_max,
             support_norm,
             cmap,
+            support_label,
         )
         figures.append(fig)
     write_location_plot_pages(figures, path)
@@ -2172,6 +2335,7 @@ def breakpoint_pair_support_map(display_grouped: pd.DataFrame, groups: list[str]
             pairs if not sub.empty else pd.DataFrame(),
             support_min,
             support_max,
+            support_label,
         )
         figures.append(fig)
     write_location_plot_pages(figures, path)

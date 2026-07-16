@@ -8,17 +8,18 @@
     .plot-subpanel { border-top: 1px solid #edf1f6; margin-top: 18px; padding-top: 14px; }
     .plot-subpanel h4 { font-size: 16px; margin: 0; }
     .plot-link { background: #285f8f; color: white; border-radius: 5px; padding: 7px 10px; text-decoration: none; font-size: 13px; white-space: nowrap; }
-    .chord-controls { align-items: end; background: #f8fafc; border: 1px solid #d8dee8; border-radius: 6px; display: grid; gap: 12px 16px; grid-template-columns: minmax(320px, 1fr) minmax(190px, auto) minmax(160px, auto) auto; margin: 14px 0 5px; padding: 12px 14px; }
-    .rainfall-controls { align-items: end; background: #f8fafc; border: 1px solid #d8dee8; border-radius: 6px; display: grid; gap: 12px 16px; grid-template-columns: minmax(320px, 1fr) minmax(160px, auto) auto; margin: 14px 0 5px; padding: 12px 14px; }
+    .chord-controls { align-items: end; background: #f8fafc; border: 1px solid #d8dee8; border-radius: 6px; display: grid; gap: 12px 16px; grid-template-columns: minmax(0, 1.45fr) minmax(0, .85fr) minmax(0, .75fr) minmax(145px, .7fr); margin: 14px 0 5px; padding: 12px 14px; }
+    .rainfall-controls { align-items: end; background: #f8fafc; border: 1px solid #d8dee8; border-radius: 6px; display: grid; gap: 12px 16px; grid-template-columns: minmax(0, 1.45fr) minmax(0, .85fr) minmax(0, .75fr) minmax(145px, .7fr); margin: 14px 0 5px; padding: 12px 14px; }
+    .chord-controls > *, .rainfall-controls > * { min-width: 0; }
     .rainfall-controls label { color: #334155; display: grid; font-size: 12px; font-weight: 700; gap: 6px; }
-    .rainfall-controls button { background: #edf2f7; border: 1px solid #b8c3d1; border-radius: 5px; color: #243447; cursor: pointer; min-height: 32px; padding: 6px 10px; white-space: nowrap; }
+    .rainfall-controls button { background: #edf2f7; border: 1px solid #b8c3d1; border-radius: 5px; box-sizing: border-box; color: #243447; cursor: pointer; min-height: 32px; padding: 6px 10px; white-space: nowrap; width: 100%; }
     .chord-controls label { color: #334155; display: grid; font-size: 12px; font-weight: 700; gap: 6px; }
     .slider-control { grid-template-columns: 1fr auto; }
     .slider-control span { grid-column: 1; }
     .slider-control input { grid-column: 1 / span 2; margin: 0; width: 100%; }
     .slider-control output { color: #285f8f; font-size: 12px; grid-column: 2; grid-row: 1; white-space: nowrap; }
-    .observation-control select, .size-control select { background: white; border: 1px solid #b8c3d1; border-radius: 5px; color: #1f2933; min-height: 32px; padding: 5px 8px; }
-    .chord-controls button { background: #edf2f7; border: 1px solid #b8c3d1; border-radius: 5px; color: #243447; cursor: pointer; min-height: 32px; padding: 6px 10px; white-space: nowrap; }
+    .observation-control select, .size-control select { background: white; border: 1px solid #b8c3d1; border-radius: 5px; box-sizing: border-box; color: #1f2933; min-height: 32px; padding: 5px 8px; width: 100%; }
+    .chord-controls button { background: #edf2f7; border: 1px solid #b8c3d1; border-radius: 5px; box-sizing: border-box; color: #243447; cursor: pointer; min-height: 32px; padding: 6px 10px; white-space: nowrap; width: 100%; }
     .comparison-filter-block { background: #f8fafc; border: 1px solid #d8dee8; border-radius: 6px; margin: 14px 0 8px; padding: 12px 14px; }
     .comparison-primary-controls { display: grid; gap: 10px; grid-template-columns: minmax(300px, 1fr); }
     .comparison-primary-controls label { color: #334155; display: grid; font-size: 12px; font-weight: 700; gap: 6px; }
@@ -50,6 +51,12 @@
     .hover-tooltip strong { display: block; font-size: 12.5px; margin-bottom: 4px; }
     .hover-tooltip-row { color: #e7eef7; }
     .hover-tooltip-row span { color: #aebfd2; }
+    @media (max-width: 1050px) and (min-width: 701px) {
+      .chord-controls { grid-template-columns: minmax(0, 1fr) minmax(150px, .75fr); }
+      .chord-controls .slider-control { grid-column: 1 / -1; }
+      .rainfall-controls { grid-template-columns: minmax(0, 1fr) minmax(140px, .7fr); }
+      .rainfall-controls .slider-control { grid-column: 1 / -1; }
+    }
     @media (max-width: 700px) {
       header { padding: 24px; }
       main { padding: 16px; }

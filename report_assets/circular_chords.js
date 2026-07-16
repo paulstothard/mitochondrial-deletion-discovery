@@ -3,12 +3,21 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
   const points = Array.from(target.querySelectorAll('.rainfall-point'));
   const slider = controls.querySelector('[data-rainfall-support-slider]');
   const supportOutput = controls.querySelector('[data-rainfall-support-output]');
+  const observationFilter = controls.querySelector('[data-observation-filter]');
+  const linkedOption = controls.querySelector('[data-linked-option]');
   const sizeFilter = controls.querySelector('[data-size-filter]');
   const reset = controls.querySelector('[data-reset-rainfall-controls]');
   const status = controls.querySelector('[data-rainfall-filter-status]');
   const supports = points.map((point) => Number(point.dataset.support)).filter(Number.isFinite);
   const supportMin = Math.min(...supports);
   const supportMax = Math.max(...supports);
+
+  function filteredObservationMinimum(pointsToCheck) {
+    const observations = pointsToCheck
+      .map((point) => Number(point.dataset.supportingReads))
+      .filter(Number.isFinite);
+    return observations.length ? Math.min(...observations) : 0;
+  }
 
   function formatRainfallSupport(value) {
     if (value >= 100) return value.toFixed(0);
@@ -28,23 +37,41 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
   function renderRainfall() {
     const threshold = supportThreshold();
     const minimumSize = sizeFilter ? Number(sizeFilter.value) : 0;
+    const supportAndSizeEligible = points.filter((point) => Number(point.dataset.support) >= threshold
+      && Number(point.dataset.deletedSize) >= minimumSize);
+    const linkedMinimum = filteredObservationMinimum(supportAndSizeEligible);
+    const minimumObservations = observationFilter && observationFilter.value !== 'linked'
+      ? Number(observationFilter.value)
+      : linkedMinimum;
     let visible = 0;
     points.forEach((point) => {
       const keep = Number(point.dataset.support) >= threshold
-        && Number(point.dataset.deletedSize) >= minimumSize;
+        && Number(point.dataset.deletedSize) >= minimumSize
+        && Number(point.dataset.supportingReads) >= minimumObservations;
       point.style.display = keep ? '' : 'none';
       if (keep) visible += 1;
     });
+    if (linkedOption) {
+      linkedOption.textContent = linkedMinimum > 0
+        ? `Auto (\u2265 ${linkedMinimum.toLocaleString()})`
+        : 'Auto (no calls pass)';
+    }
     supportOutput.textContent = Number(slider.value) === 0
       ? 'All loaded calls'
       : `>= ${formatRainfallSupport(threshold)}`;
     const sizeNote = minimumSize > 0 ? `, deleted size >= ${minimumSize.toLocaleString()} bp` : '';
-    status.textContent = `Showing ${visible.toLocaleString()} of ${points.length.toLocaleString()} loaded exact deletions${sizeNote}`;
+    const observationNote = minimumObservations > 0 ? `, supporting observations >= ${minimumObservations.toLocaleString()}` : '';
+    status.textContent = `Showing ${visible.toLocaleString()} of ${points.length.toLocaleString()} loaded exact deletions${sizeNote}${observationNote}`;
   }
 
-  slider.addEventListener('input', renderRainfall);
+  slider.addEventListener('input', () => {
+    if (observationFilter) observationFilter.value = 'linked';
+    renderRainfall();
+  });
+  if (observationFilter) observationFilter.addEventListener('change', renderRainfall);
   reset.addEventListener('click', () => {
     slider.value = '0';
+    if (observationFilter) observationFilter.value = 'linked';
     if (sizeFilter) sizeFilter.value = '0';
     renderRainfall();
   });
@@ -131,6 +158,89 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
       }
       reset.addEventListener('click', () => {
         baselineMode = true;
+        slider.value = '0';
+        observationFilter.value = 'linked';
+        if (sizeFilter) sizeFilter.value = '0';
+        render();
+      });
+      render();
+    });
+
+    document.querySelectorAll('[data-breakpoint-pair-controls]').forEach((controls) => {
+      const target = document.getElementById(controls.dataset.target);
+      const points = Array.from(target.querySelectorAll('.breakpoint-pair-point'));
+      const rankLabels = Array.from(target.querySelectorAll('[id^="breakpoint-pair-rank-"]'));
+      const slider = controls.querySelector('[data-support-slider]');
+      const supportOutput = controls.querySelector('[data-support-output]');
+      const observationFilter = controls.querySelector('[data-observation-filter]');
+      const linkedOption = controls.querySelector('[data-linked-option]');
+      const sizeFilter = controls.querySelector('[data-size-filter]');
+      const reset = controls.querySelector('[data-reset-breakpoint-pair-controls]');
+      const status = controls.querySelector('[data-filter-status]');
+      const supports = points.map((point) => Number(point.dataset.support)).filter(Number.isFinite);
+      const supportMin = Math.min(...supports);
+      const supportMax = Math.max(...supports);
+
+      function formatSupport(value) {
+        if (value >= 100) return value.toFixed(0);
+        if (value >= 10) return value.toFixed(1).replace(/\.0$/, '');
+        if (value >= 1) return value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+        return value.toPrecision(3).replace(/0+$/, '').replace(/\.$/, '');
+      }
+
+      function supportThreshold() {
+        const fraction = Number(slider.value) / Number(slider.max);
+        if (!Number.isFinite(supportMin) || !Number.isFinite(supportMax) || supportMin <= 0) return 0;
+        if (fraction <= 0 || supportMax <= supportMin) return supportMin;
+        return supportMin * Math.pow(supportMax / supportMin, fraction);
+      }
+
+      function render() {
+        const threshold = supportThreshold();
+        const minimumSize = sizeFilter ? Number(sizeFilter.value) : 0;
+        const supportAndSizeEligible = points.filter((point) => Number(point.dataset.support) >= threshold
+          && Number(point.dataset.deletedSize) >= minimumSize);
+        const eligibleObservations = supportAndSizeEligible
+          .map((point) => Number(point.dataset.supportingObservations))
+          .filter(Number.isFinite);
+        const linkedMinimum = eligibleObservations.length ? Math.min(...eligibleObservations) : 0;
+        const minimumObservations = observationFilter.value === 'linked'
+          ? linkedMinimum
+          : Number(observationFilter.value);
+        const visibleRanks = new Set();
+        let visible = 0;
+        points.forEach((point) => {
+          const keep = Number(point.dataset.support) >= threshold
+            && Number(point.dataset.deletedSize) >= minimumSize
+            && Number(point.dataset.supportingObservations) >= minimumObservations;
+          point.style.display = keep ? '' : 'none';
+          if (keep) {
+            visible += 1;
+            if (point.dataset.rank) visibleRanks.add(point.dataset.rank);
+          }
+        });
+        rankLabels.forEach((label) => {
+          const rank = label.id.replace('breakpoint-pair-rank-', '');
+          label.style.display = visibleRanks.has(rank) ? '' : 'none';
+        });
+        linkedOption.textContent = linkedMinimum > 0
+          ? `Auto (\u2265 ${linkedMinimum.toLocaleString()})`
+          : 'Auto (no calls pass)';
+        supportOutput.textContent = Number(slider.value) === 0
+          ? 'All loaded calls'
+          : `>= ${formatSupport(threshold)}`;
+        const sizeNote = minimumSize > 0 ? `, deleted size >= ${minimumSize.toLocaleString()} bp` : '';
+        const observationNote = minimumObservations > 0 ? `, supporting observations >= ${minimumObservations.toLocaleString()}` : '';
+        status.textContent = `Showing ${visible.toLocaleString()} of ${points.length.toLocaleString()} loaded breakpoint pairs${sizeNote}${observationNote}`;
+      }
+
+      slider.addEventListener('input', () => {
+        observationFilter.value = 'linked';
+        render();
+      });
+      observationFilter.addEventListener('change', render);
+      if (sizeFilter) sizeFilter.addEventListener('change', render);
+      reset.addEventListener('click', () => {
         slider.value = '0';
         observationFilter.value = 'linked';
         if (sizeFilter) sizeFilter.value = '0';
@@ -257,6 +367,12 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
       return number.toLocaleString(undefined, {maximumSignificantDigits: 4});
     }
 
+    function formatTooltipValue(value) {
+      if (value === undefined || value === null || String(value).trim() === '') return 'NA';
+      const number = Number(value);
+      return Number.isFinite(number) ? formatTooltipNumber(number) : String(value);
+    }
+
     function populateTooltip(target) {
       hoverTooltip.replaceChildren();
       const heading = document.createElement('strong');
@@ -266,7 +382,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         addTooltipRow('Group', target.dataset.group || 'NA');
         addTooltipRow('Directed breakpoints', `${formatTooltipNumber(target.dataset.leftBreakpoint)} to ${formatTooltipNumber(target.dataset.rightBreakpoint)}`);
         addTooltipRow('Deleted size', `${formatTooltipNumber(target.dataset.deletedSize)} bp`);
-        addTooltipRow('Normalized support', formatTooltipNumber(target.dataset.support));
+        addTooltipRow(target.dataset.supportLabel || 'Plotted support', formatTooltipNumber(target.dataset.support));
         addTooltipRow('Supporting observations', formatTooltipNumber(target.dataset.supportingReads));
         addTooltipRow('Affected features', (target.dataset.affectedFeatures || 'NA').replaceAll('_', ' '));
         addTooltipRow('Arc annotation', (target.dataset.arcContext || 'NA').replaceAll('_', ' '));
@@ -278,33 +394,41 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         hoverTooltip.appendChild(heading);
         addTooltipRow('Group', target.dataset.group || 'NA');
         addTooltipRow('Bin midpoint', `${formatTooltipNumber(target.dataset.binMidpoint)} bp`);
-        addTooltipRow('Left endpoints', `${formatTooltipNumber(target.dataset.leftEndpointCount)} (${formatTooltipNumber(target.dataset.leftSupport)} support)`);
-        addTooltipRow('Right endpoints', `${formatTooltipNumber(target.dataset.rightEndpointCount)} (${formatTooltipNumber(target.dataset.rightSupport)} support)`);
-        addTooltipRow('Total raw endpoints', formatTooltipNumber(target.dataset.endpointCount));
-        addTooltipRow('Total raw support', formatTooltipNumber(target.dataset.summedSupport));
-        addTooltipRow('Smoothed support', formatTooltipNumber(target.dataset.smoothedSupport));
-        addTooltipRow('Smoothed endpoint count', formatTooltipNumber(target.dataset.smoothedEndpointCount));
+        const supportLabel = target.dataset.supportLabel || 'Plotted support';
+        addTooltipRow('Left exact deletion calls', formatTooltipNumber(target.dataset.leftEndpointCount));
+        addTooltipRow(`Left ${supportLabel}`, formatTooltipNumber(target.dataset.leftSupport));
+        addTooltipRow('Left raw supporting observations', formatTooltipNumber(target.dataset.leftRawSupportingReads));
+        addTooltipRow('Right exact deletion calls', formatTooltipNumber(target.dataset.rightEndpointCount));
+        addTooltipRow(`Right ${supportLabel}`, formatTooltipNumber(target.dataset.rightSupport));
+        addTooltipRow('Right raw supporting observations', formatTooltipNumber(target.dataset.rightRawSupportingReads));
+        addTooltipRow('Total distinct exact deletion calls', formatTooltipNumber(target.dataset.endpointCount));
+        addTooltipRow('Total raw supporting observations', formatTooltipNumber(target.dataset.rawSupportingReads));
+        addTooltipRow(`Total ${supportLabel}`, formatTooltipNumber(target.dataset.summedSupport));
+        addTooltipRow(`Smoothed ${supportLabel}`, formatTooltipNumber(target.dataset.smoothedSupport));
+        addTooltipRow('Smoothed exact deletion call count', formatTooltipNumber(target.dataset.smoothedEndpointCount));
       } else if (target.classList.contains('breakpoint-pair-point')) {
         heading.textContent = target.dataset.exactDeletionId || 'Breakpoint pair';
         hoverTooltip.appendChild(heading);
         addTooltipRow('Group', target.dataset.group || 'NA');
         addTooltipRow('Directed breakpoints', `${formatTooltipNumber(target.dataset.leftBreakpoint)} to ${formatTooltipNumber(target.dataset.rightBreakpoint)}`);
         addTooltipRow('Deleted size', `${formatTooltipNumber(target.dataset.deletedSize)} bp`);
-        addTooltipRow('Normalized support', formatTooltipNumber(target.dataset.support));
+        addTooltipRow(target.dataset.supportLabel || 'Plotted support', formatTooltipNumber(target.dataset.support));
         addTooltipRow('Supporting observations', formatTooltipNumber(target.dataset.supportingObservations));
         addTooltipRow('Exact deletions in pair', formatTooltipNumber(target.dataset.pairCount));
         addTooltipRow('Affected features', (target.dataset.affectedFeatures || 'NA').replaceAll('_', ' '));
         addTooltipRow('Origin-spanning', target.dataset.crossesOrigin || 'NA');
         addTooltipRow('Arc annotation', (target.dataset.arcContext || 'NA').replaceAll('_', ' '));
-      } else if (target.classList.contains('ordination-point')) {
+      } else if (target.classList.contains('ordination-point') || target.classList.contains('sample-point')) {
         heading.textContent = target.dataset.sample || 'Sample';
         hoverTooltip.appendChild(heading);
         addTooltipRow('Group', target.dataset.group || 'NA');
-        addTooltipRow(target.dataset.xLabel || 'X', formatTooltipNumber(target.dataset.xValue));
-        addTooltipRow(target.dataset.yLabel || 'Y', formatTooltipNumber(target.dataset.yValue));
+        addTooltipRow(target.dataset.xLabel || 'X', formatTooltipValue(target.dataset.xValue));
+        addTooltipRow(target.dataset.yLabel || 'Y', formatTooltipValue(target.dataset.yValue));
         if (target.dataset.biologicalReplicate) addTooltipRow('Biological replicate', target.dataset.biologicalReplicate);
         if (target.dataset.layout) addTooltipRow('Read layout', target.dataset.layout);
         if (target.dataset.tissue) addTooltipRow('Tissue', target.dataset.tissue);
+        if (target.dataset.age) addTooltipRow('Age', target.dataset.age);
+        if (target.dataset.treatment) addTooltipRow('Treatment', target.dataset.treatment);
       } else if (target.classList.contains('comparison-chord')) {
         heading.textContent = `Comparison rank ${target.dataset.rank}: ${target.dataset.deletionId}`;
         hoverTooltip.appendChild(heading);
@@ -325,7 +449,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         hoverTooltip.appendChild(heading);
         addTooltipRow('Directed breakpoints', `${Number(target.dataset.leftBreakpoint).toLocaleString()} to ${Number(target.dataset.rightBreakpoint).toLocaleString()}`);
         addTooltipRow('Deleted interval', `${Number(target.dataset.deletedSize).toLocaleString()} bp`);
-        addTooltipRow('Normalized support', Number(target.dataset.support).toLocaleString(undefined, {maximumSignificantDigits: 4}));
+        addTooltipRow(target.dataset.supportLabel || 'Plotted support', Number(target.dataset.support).toLocaleString(undefined, {maximumSignificantDigits: 4}));
         addTooltipRow('Supporting observations', Number(target.dataset.observations).toLocaleString());
         addTooltipRow('Affected features', (target.dataset.affectedFeatures || 'NA').replaceAll('_', ' '));
         addTooltipRow('Arc annotation', target.dataset.arcContext.replaceAll('_', ' '));
@@ -350,7 +474,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
 
     document.addEventListener('pointerover', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .sample-point, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       if (!target) return;
       populateTooltip(target);
@@ -362,10 +486,10 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
     });
     document.addEventListener('pointerout', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .sample-point, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       const related = event.relatedTarget instanceof Element
-        ? event.relatedTarget.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.relatedTarget.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .sample-point, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       if (target && target !== related) hoverTooltip.style.display = 'none';
     });

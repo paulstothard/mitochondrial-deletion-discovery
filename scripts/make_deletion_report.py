@@ -1049,6 +1049,18 @@ def rainfall_location_plot_panel(path: str, title: str, caption: str, link_prefi
                   <input type="range" min="0" max="1000" step="1" value="0" data-rainfall-support-slider>
                   <output data-rainfall-support-output>All loaded calls</output>
                 </label>
+                <label class="observation-control">
+                  <span>Minimum supporting observations</span>
+                  <select data-observation-filter>
+                    <option value="linked" data-linked-option>Auto</option>
+                    <option value="1">&ge; 1</option>
+                    <option value="2">&ge; 2</option>
+                    <option value="5">&ge; 5</option>
+                    <option value="10">&ge; 10</option>
+                    <option value="100">&ge; 100</option>
+                    <option value="200">&ge; 200</option>
+                  </select>
+                </label>
                 <label class="size-control">
                   <span>Minimum deleted size</span>
                   <select data-size-filter>
@@ -1058,7 +1070,7 @@ def rainfall_location_plot_panel(path: str, title: str, caption: str, link_prefi
                 <button type="button" data-reset-rainfall-controls>Reset to all calls</button>
                 <div class="filter-status" data-rainfall-filter-status></div>
               </div>
-              <div class="control-note">The eligible call set loaded for this view contains {html.escape(call_count)} calls. By default this is the complete eligible set; an explicit configured cap, if used, is reflected in the count. The support slider uses a logarithmic normalized-support scale, and the size filter keeps calls at or above the selected deleted-interval length. Hover a point for its exact deletion ID, directed breakpoints, deleted size, raw and normalized support, arc annotation, origin status, and configured match. Controls affect the HTML view only.</div>
+              <div class="control-note">The eligible call set loaded for this view contains {html.escape(call_count)} calls. By default this is the complete eligible set; an explicit configured cap, if used, is reflected in the count. The support slider uses a logarithmic normalized-support scale. The observation and size filters apply additional raw-evidence and deleted-interval-length cutoffs. Hover a point for its exact deletion ID, directed breakpoints, deleted size, raw and normalized support, arc annotation, origin status, and configured match. Controls affect the HTML view only.</div>
               <div id="{html.escape(target_id)}" class="plot-svg">{svg}</div>
             </div>
             """
@@ -1070,7 +1082,7 @@ def rainfall_location_plot_panel(path: str, title: str, caption: str, link_prefi
         <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(aggregate.name)}">Open multipage PDF</a>
       </div>
       <p>{html.escape(caption)}</p>
-      <div class="control-guidance"><strong>Using the rainfall controls</strong><p>All exact deletions passing the configured base support threshold are loaded into each group view. Move the support slider to hide lower-support calls, or select a minimum deleted size to focus on larger events; the count and plot update together. The PDF is a static all-size, all-call snapshot.</p></div>
+      <div class="control-guidance"><strong>Using the rainfall controls</strong><p>All exact deletions passing the configured base support threshold are loaded into each group view. Move the support slider to hide lower-support calls, or choose minimum supporting observations and deleted size cutoffs to focus on stronger or larger events; the count and plot update together. The PDF is a static all-size, all-call snapshot.</p></div>
       {''.join(subpanels)}
     </article>
     """
@@ -1095,7 +1107,7 @@ def endpoint_density_plot_panel(path: str, title: str, caption: str, link_prefix
                 <h4>{html.escape(group)}</h4>
                 <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(static_pdf.name)}">Open PDF</a>
               </div>
-              <div class="control-note">Hover a density bin to inspect its coordinate interval, left/right endpoint support and counts, total raw support, and circular-smoothed support ({html.escape(bin_count)} bins). The PDF is a static view of the same calculation.</div>
+              <div class="control-note">Hover a density bin to inspect its coordinate interval, plotted support, distinct exact-deletion call counts, raw supporting observations, and circular-smoothed values ({html.escape(bin_count)} bins). Bars and the line use the configured plotted support metric; raw observations are shown separately. The PDF is a static view of the same calculation.</div>
               <div class="plot-svg">{svg}</div>
             </div>
             """
@@ -1125,6 +1137,7 @@ def breakpoint_pair_plot_panel(path: str, title: str, caption: str, link_prefix:
         group = svg_data_attribute(svg, "group", fallback_group.replace("_", " "))
         static_pdf = svg_path.with_name(svg_path.name.replace("__interactive.svg", ".pdf"))
         point_count = svg_data_attribute(svg, "point-count", "0")
+        target_id = chord_target_id(f"interactive__{aggregate.stem}", group)
         subpanels.append(
             f"""
             <div class="plot-subpanel breakpoint-pair-plot-panel">
@@ -1132,8 +1145,35 @@ def breakpoint_pair_plot_panel(path: str, title: str, caption: str, link_prefix:
                 <h4>{html.escape(group)}</h4>
                 <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(static_pdf.name)}">Open PDF</a>
               </div>
-              <div class="control-note">Hover a point to inspect its breakpoint pair, support, origin status, affected features, and the number of exact deletions represented by that pair ({html.escape(point_count)} pairs).</div>
-              <div class="plot-svg">{svg}</div>
+              <div class="chord-controls breakpoint-pair-controls" data-breakpoint-pair-controls data-target="{html.escape(target_id)}">
+                <label class="slider-control">
+                  <span>Minimum normalized support</span>
+                  <input type="range" min="0" max="1000" step="1" value="0" data-support-slider>
+                  <output data-support-output>All loaded calls</output>
+                </label>
+                <label class="observation-control">
+                  <span>Minimum supporting observations</span>
+                  <select data-observation-filter>
+                    <option value="linked" data-linked-option>Auto</option>
+                    <option value="1">&ge; 1</option>
+                    <option value="2">&ge; 2</option>
+                    <option value="5">&ge; 5</option>
+                    <option value="10">&ge; 10</option>
+                    <option value="100">&ge; 100</option>
+                    <option value="200">&ge; 200</option>
+                  </select>
+                </label>
+                <label class="size-control">
+                  <span>Minimum deleted size</span>
+                  <select data-size-filter>
+                    {deletion_size_filter_options()}
+                  </select>
+                </label>
+                <button type="button" data-reset-breakpoint-pair-controls>Reset to all calls</button>
+                <div class="filter-status" data-filter-status></div>
+              </div>
+              <div class="control-note">The eligible call set contains {html.escape(point_count)} unique breakpoint pairs. The support, observation, and deleted-size controls affect the HTML view only. Hover a point to inspect its breakpoint pair, support, origin status, affected features, and the number of exact deletions represented by that pair.</div>
+              <div id="{html.escape(target_id)}" class="plot-svg">{svg}</div>
             </div>
             """
         )
@@ -1220,6 +1260,8 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
         hover_note = ""
         if 'data-plot-type="ordination"' in svg:
             hover_note = '<div class="control-note">Hover a sample to inspect its coordinates, group, replicate, layout, and tissue metadata.</div>'
+        elif 'data-plot-type="sample-points"' in svg:
+            hover_note = '<div class="control-note">Hover a sample point to inspect its sample, group, plotted value, replicate, layout, and tissue metadata.</div>'
         preview = f'{hover_note}<div class="plot-svg">{svg}</div>'
     else:
         preview = '<div class="plot-missing">Plot preview not available.</div>'
@@ -2382,8 +2424,8 @@ def main() -> None:
         "circular_breakpoint_chords_all.pdf": ("Circular Breakpoint Chords", f"{rainfall_display_definition(config, burden)} Each chord joins the alignment-directed left and right breakpoints of one exact deletion. The baseline PDF uses the rainfall display threshold and any explicitly configured count cap; the HTML view loads every threshold-eligible call and provides normalized-support and raw-observation controls. Chord color uses the same normalized-support scale as the rainfall plots."),
         "exact_deletion_comparison_chords.pdf": ("Exact Deletion Group Comparison Chords", "Each chord represents one exact deletion with at least one supporting observation in either group of a configured comparison. Chord color is the normalized mean-support difference between groups. The HTML views provide explicit replicate-level, exploratory, and technical read-depth presets plus optional display refinements."),
         "breakpoint_pair_support_map.pdf": ("Breakpoint-Pair Support Map", f"{rainfall_display_definition(config, burden)} Each point is one unique left/right breakpoint pair after applying the same display threshold and optional per-group cap as the rainfall plots. Marker numbers use the same group-specific support ranks as the breakpoint-pair view. The x-axis is the left breakpoint; the y-axis is the right breakpoint, with origin-crossing right breakpoints shown above the horizontal genome-end line."),
-        "pooled_breakpoint_support_density.pdf": ("Pooled Breakpoint Support Density", f"{rainfall_display_definition(config, burden)} This group-split view summarizes where deletion endpoints accumulate along the mitochondrial genome after pooling left and right breakpoints within each group. Stacked bars show binned support split by left versus right endpoint; the line is circular-smoothed total endpoint support."),
-        "pooled_breakpoint_support_density_capped.pdf": ("Pooled Breakpoint Support Density: Capped Scale", f"{rainfall_display_definition(config, burden)} This is the same group-split endpoint-density view with the y-axis capped so smaller secondary breakpoint hotspots remain visible when one region dominates."),
+        "pooled_breakpoint_support_density.pdf": ("Pooled Breakpoint Support Density", f"{rainfall_display_definition(config, burden)} This group-split view summarizes where deletion endpoints accumulate along the mitochondrial genome after pooling left and right breakpoints within each group. Stacked bars show the configured plotted support metric split by left versus right endpoint; the line is circular-smoothed total plotted support. Hover metadata separately reports distinct exact-deletion calls and raw supporting observations in each bin."),
+        "pooled_breakpoint_support_density_capped.pdf": ("Pooled Breakpoint Support Density: Capped Scale", f"{rainfall_display_definition(config, burden)} This is the same group-split endpoint-density view with the y-axis capped so smaller secondary breakpoint hotspots remain visible when one region dominates. Hover metadata separately reports distinct exact-deletion calls and raw supporting observations in each bin."),
         "affected_feature_support.pdf": ("Affected Features: Normalized Abundance", f"This bar chart compares affected-feature categories after normalizing each sample {normalization_phrase(burden)}. Use this as the main abundance view when groups have different sequencing depth or mitochondrial read recovery."),
         "affected_feature_counts.pdf": ("Affected Features: Raw Supporting Reads", "This uses the same affected-feature categories as the normalized plot, but shows raw supporting read counts. It can look similar when sample depths are similar; disagreement between this and the normalized plot suggests depth or recovery differences."),
         "affected_feature_proportions.pdf": ("Affected Features: Within-Group Percent", "This uses the same affected-feature categories again, but rescales each group to 100 percent. It asks whether the mix of affected features changes, independent of total deletion burden."),
