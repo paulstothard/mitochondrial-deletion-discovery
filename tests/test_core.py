@@ -34,6 +34,7 @@ from plot_deletion_results import (
     draw_location_feature_track,
     endpoint_density_figure,
     endpoint_density_hotspots,
+    location_rainfall,
     location_features,
     mitochondrial_axis_bounds,
     pooled_endpoint_density,
@@ -53,6 +54,7 @@ from make_deletion_report import (
     assumptions_section,
     circular_comparison_plot_panel,
     circular_location_plot_panel,
+    rainfall_location_plot_panel,
     configured_replication_arc_table,
     exact_deletion_display_table,
     exact_deletion_table_settings,
@@ -526,11 +528,22 @@ class CoreTests(unittest.TestCase):
                 {"sample": "s1", "read_id": "readB", "junction_id": "j1", "left_breakpoint": 110, "right_breakpoint": 210, "deleted_size": 99},
             ]
         )
-        clusters = pd.DataFrame({"junction_id": ["j1"], "left_breakpoint": [105], "right_breakpoint": [207], "deleted_size": [999]})
+        clusters = pd.DataFrame(
+            {
+                "junction_id": ["j1"],
+                "left_breakpoint": [105],
+                "right_breakpoint": [207],
+                "deleted_size": [999],
+                "affected_feature_label": ["MT-ND1+MT-ND2"],
+                "replication_arc_context": ["major_arc_only"],
+            }
+        )
         corrected = apply_cluster_coordinates(reads, clusters, mt_length=1000)
         self.assertEqual(corrected["left_breakpoint"].tolist(), [105, 105])
         self.assertEqual(corrected["right_breakpoint"].tolist(), [207, 207])
         self.assertEqual(corrected["deleted_size"].tolist(), [101, 101])
+        self.assertEqual(corrected["affected_feature_label"].tolist(), ["MT-ND1+MT-ND2", "MT-ND1+MT-ND2"])
+        self.assertEqual(corrected["replication_arc_context"].tolist(), ["major_arc_only", "major_arc_only"])
 
     def test_wrapping_deletion_annotates_features_on_both_sides_of_origin(self):
         import pandas as pd
@@ -936,6 +949,73 @@ class CoreTests(unittest.TestCase):
             self.assertIn("Read-depth enriched", comparison_html)
             self.assertIn("treated compared with control", comparison_html)
             self.assertNotIn("major arc", comparison_html.lower())
+
+    def test_rainfall_interactive_sidecar_has_all_point_metadata_and_controls(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "deletion_rainfall_left_breakpoint.pdf"
+            calls = pd.DataFrame(
+                [
+                    {
+                        "_plot_group": "treated",
+                        "left_breakpoint": 100,
+                        "right_breakpoint": 500,
+                        "deleted_size": 399,
+                        "_plot_x": 100,
+                        "_plot_support": 0.2,
+                        "supporting_reads": 3,
+                        "exact_deletion_id": "mtDel_00100_00500_00399",
+                        "crosses_origin": False,
+                        "affected_feature_label": "MT-CO1+MT-CO2",
+                        "replication_arc_context": "major_arc_only",
+                        "major_arc_deleted_bp": 399,
+                        "minor_arc_deleted_bp": 0,
+                        "known_deletion_label": "",
+                    },
+                    {
+                        "_plot_group": "treated",
+                        "left_breakpoint": 16000,
+                        "right_breakpoint": 200,
+                        "deleted_size": 768,
+                        "_plot_x": 16000,
+                        "_plot_support": 4.0,
+                        "supporting_reads": 8,
+                        "exact_deletion_id": "mtDel_16000_00200_00768",
+                        "crosses_origin": True,
+                        "affected_feature_label": "MT-ND1",
+                        "replication_arc_context": "major_and_minor_arcs",
+                        "major_arc_deleted_bp": 500,
+                        "minor_arc_deleted_bp": 268,
+                        "known_deletion_label": "configured target",
+                    },
+                ]
+            )
+            location_rainfall(
+                calls,
+                ["treated"],
+                pd.DataFrame(),
+                {},
+                16569,
+                str(path),
+                "Rainfall",
+                "left_breakpoint",
+                "Left breakpoint",
+                "Normalized support",
+            )
+            interactive = path.with_name("deletion_rainfall_left_breakpoint__treated__interactive.svg")
+            svg = interactive.read_text(encoding="utf-8")
+            self.assertEqual(svg.count('class="rainfall-point"'), 2)
+            self.assertIn('data-exact-deletion-id="mtDel_00100_00500_00399"', svg)
+            self.assertIn('data-crosses-origin="yes"', svg)
+            self.assertIn('data-arc-context="major_and_minor_arcs"', svg)
+            self.assertIn('data-call-count="2"', svg)
+            self.assertNotIn("support rank within this group", svg)
+
+            panel = rainfall_location_plot_panel(str(path), "Rainfall", "Caption", "plots")
+            self.assertIn("data-rainfall-controls", panel)
+            self.assertIn("data-rainfall-support-slider", panel)
+            self.assertIn("eligible call set loaded for this view contains 2 calls", panel)
 
     def test_rainfall_support_scaling_uses_observed_range(self):
         support = pd.Series([0.0034, 0.01, 0.1, 0.348])

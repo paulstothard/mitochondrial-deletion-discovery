@@ -1216,7 +1216,7 @@ rule plot_results:
     params:
         group=CFG["dataset"].get("primary_group_column", ""),
         rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
-        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 300),
+        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 0),
         endpoint_density_bin_size=CFG.get("plots", {}).get("endpoint_density_bin_size", 50),
         endpoint_density_smooth_bins=CFG.get("plots", {}).get("endpoint_density_smooth_bins", 7),
         mt_length=MT_LENGTH,
@@ -1267,7 +1267,7 @@ rule plot_circular_chords:
     params:
         group=CFG["dataset"].get("primary_group_column", ""),
         rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
-        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 300),
+        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 0),
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:
@@ -1328,7 +1328,7 @@ rule plot_quality_profile:
     params:
         group=CFG["dataset"].get("primary_group_column", ""),
         rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
-        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 300),
+        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 0),
         endpoint_density_bin_size=CFG.get("plots", {}).get("endpoint_density_bin_size", 50),
         endpoint_density_smooth_bins=CFG.get("plots", {}).get("endpoint_density_smooth_bins", 7),
     conda:
@@ -1379,7 +1379,7 @@ rule plot_quality_profile_circular_chords:
     params:
         group=CFG["dataset"].get("primary_group_column", ""),
         rainfall_min_support_per_million=CFG.get("plots", {}).get("rainfall_min_support_per_million", 0.0),
-        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 300),
+        rainfall_max_points_per_group=CFG.get("plots", {}).get("rainfall_max_points_per_group", 0),
     conda:
         "envs/mitochondrial-deletions.yaml"
     shell:

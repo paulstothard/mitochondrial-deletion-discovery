@@ -200,9 +200,12 @@ increase clockwise. The outer annotation ring and the linear mitochondrial featu
 tracks use the same feature classes and colors: D-loop/control region coral,
 protein-coding genes green, rRNA cyan, and tRNA purple.
 
-The baseline chord PDFs use the rainfall support threshold and per-group count cap.
-The HTML location view loads every call passing that support threshold before the
-count cap. Its logarithmic support slider controls minimum normalized support. The
+The baseline chord PDFs use the rainfall support threshold and any explicitly
+configured per-group count cap. The HTML location view loads every call passing
+that support threshold before the count cap. Its logarithmic support slider controls
+minimum normalized support. Rainfall HTML views load the complete eligible call set
+by default and provide the same support slider plus point mouseovers; rainfall PDFs
+remain static all-call snapshots. The
 observation selector can add an absolute raw-evidence cutoff; `Auto` reports the
 lowest raw count among calls retained by the support slider, and moving that slider
 returns the selector to `Auto`. Reset restores the baseline PDF display set.

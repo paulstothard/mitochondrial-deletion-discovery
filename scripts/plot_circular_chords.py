@@ -822,7 +822,7 @@ def main() -> None:
     parser.add_argument("--group-column", default="")
     parser.add_argument("--genome-length", required=True, type=int)
     parser.add_argument("--rainfall-min-support-per-million", type=float, default=0.0)
-    parser.add_argument("--rainfall-max-points-per-group", type=int, default=300)
+    parser.add_argument("--rainfall-max-points-per-group", type=int, default=0)
     parser.add_argument("--out-location", required=True, type=Path)
     parser.add_argument("--out-comparison", required=True, type=Path)
     parser.add_argument("--out-displayed-table", required=True, type=Path)

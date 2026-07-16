@@ -998,6 +998,53 @@ def circular_comparison_plot_panel(path: str, title: str, caption: str, link_pre
     """
 
 
+def rainfall_location_plot_panel(path: str, title: str, caption: str, link_prefix: str) -> str:
+    aggregate = Path(path)
+    interactive_svgs = sorted(aggregate.parent.glob(f"{aggregate.stem}__*__interactive.svg"))
+    if not interactive_svgs:
+        return ""
+    subpanels = []
+    for svg_path in interactive_svgs:
+        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        fallback_group = svg_path.stem.removeprefix(f"{aggregate.stem}__").removesuffix("__interactive")
+        group = svg_data_attribute(svg, "group", fallback_group.replace("_", " "))
+        target_id = chord_target_id(f"interactive__{aggregate.stem}", group)
+        static_pdf = svg_path.with_name(svg_path.name.replace("__interactive.svg", ".pdf"))
+        call_count = svg_data_attribute(svg, "call-count", "0")
+        subpanels.append(
+            f"""
+            <div class="plot-subpanel rainfall-plot-panel">
+              <div class="plot-title-row">
+                <h4>{html.escape(group)}</h4>
+                <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(static_pdf.name)}">Open PDF</a>
+              </div>
+              <div class="rainfall-controls" data-rainfall-controls data-target="{html.escape(target_id)}">
+                <label class="slider-control">
+                  <span>Minimum normalized support</span>
+                  <input type="range" min="0" max="1000" step="1" value="0" data-rainfall-support-slider>
+                  <output data-rainfall-support-output>All loaded calls</output>
+                </label>
+                <button type="button" data-reset-rainfall-controls>Reset to all calls</button>
+                <div class="filter-status" data-rainfall-filter-status></div>
+              </div>
+              <div class="control-note">The eligible call set loaded for this view contains {html.escape(call_count)} calls. By default this is the complete eligible set; an explicit configured cap, if used, is reflected in the count. The slider uses a logarithmic normalized-support scale; hover a point for its exact deletion ID, directed breakpoints, deleted size, raw and normalized support, arc annotation, origin status, and configured match. Controls affect the HTML view only.</div>
+              <div id="{html.escape(target_id)}" class="plot-svg">{svg}</div>
+            </div>
+            """
+        )
+    return f"""
+    <article class="plot-panel rainfall-location-plot">
+      <div class="plot-title-row">
+        <h3>{html.escape(title)}</h3>
+        <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(aggregate.name)}">Open multipage PDF</a>
+      </div>
+      <p>{html.escape(caption)}</p>
+      <div class="control-guidance"><strong>Using the rainfall control</strong><p>All exact deletions passing the configured base support threshold are loaded into each group view. Move the slider to hide lower-support calls; the count and plot update together. The PDF is a static all-call snapshot.</p></div>
+      {''.join(subpanels)}
+    </article>
+    """
+
+
 def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") -> str:
     if Path(path).stem == "circular_breakpoint_chords_all":
         panel = circular_location_plot_panel(path, title, caption, link_prefix)
@@ -1005,6 +1052,14 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
             return panel
     if Path(path).stem == "exact_deletion_comparison_chords":
         panel = circular_comparison_plot_panel(path, title, caption, link_prefix)
+        if panel:
+            return panel
+    if Path(path).stem in {
+        "deletion_rainfall_left_breakpoint",
+        "deletion_rainfall_right_breakpoint",
+        "deletion_rainfall_midpoint",
+    }:
+        panel = rainfall_location_plot_panel(path, title, caption, link_prefix)
         if panel:
             return panel
     svg_path = Path(path).with_suffix(".svg")
@@ -2203,12 +2258,12 @@ def main() -> None:
         "deletion_size_distribution_small.pdf": ("Small Deletions (<1 kb)", "Restricted normalized size distribution for small deletions. This separates the dense short-deletion range from larger events."),
         "deletion_size_distribution_medium.pdf": ("Medium Deletions (1-5 kb)", "Restricted normalized size distribution for medium deletions, where group-specific peaks can be hidden in the full-range plot."),
         "deletion_size_distribution_large.pdf": ("Large Deletions (>=5 kb)", "Restricted normalized size distribution for large deletions. This is useful for common-deletion-sized or paper-sized events."),
-        "deletion_rainfall_left_breakpoint.pdf": ("Deletion Rainfall: Left Breakpoint", f"{rainfall_display_definition(config, burden)} Each point is one displayed exact deletion, placed by alignment-directed left breakpoint and deleted size on a log y-axis. Larger and brighter points have more normalized support. Marker numbers give unique support ranks within each group and match the right-breakpoint, circular-midpoint, and breakpoint-pair views; numbers are omitted when they do not fit. A cyan outline marks directed intervals spanning the coordinate origin. This is a display filter for the plot only; the exact-deletion table remains the complete call list subject to its own table-display settings."),
-        "deletion_rainfall_right_breakpoint.pdf": ("Deletion Rainfall: Right Breakpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same displayed exact deletions, group-specific support ranks, and support scale as the left-breakpoint rainfall plot, but places each point by alignment-directed right breakpoint. Comparing left and right views helps identify fixed-endpoint patterns."),
-        "deletion_rainfall_midpoint.pdf": ("Deletion Rainfall: Circular Midpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same displayed exact deletions and group-specific support ranks, placed by the circular midpoint of the deleted interval. Origin-spanning deletions are positioned by the midpoint along the deleted circular path rather than by a simple linear average."),
-        "circular_breakpoint_chords_all.pdf": ("Circular Breakpoint Chords", f"{rainfall_display_definition(config, burden)} Each chord joins the alignment-directed left and right breakpoints of one exact deletion. The baseline PDF uses the rainfall display threshold and count cap; the HTML view loads every threshold-eligible call and provides normalized-support and raw-observation controls. Chord color uses the same normalized-support scale as the rainfall plots."),
+        "deletion_rainfall_left_breakpoint.pdf": ("Deletion Rainfall: Left Breakpoint", f"{rainfall_display_definition(config, burden)} Each point is one displayed exact deletion, placed by alignment-directed left breakpoint and deleted size on a log y-axis. Larger and brighter points have more normalized support. A cyan outline marks directed intervals spanning the coordinate origin. The HTML view loads the complete eligible call set, provides a normalized-support slider, and shows exact deletion details on hover."),
+        "deletion_rainfall_right_breakpoint.pdf": ("Deletion Rainfall: Right Breakpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same eligible exact deletions and support scale as the left-breakpoint rainfall plot, but places each point by alignment-directed right breakpoint. Comparing left and right views helps identify fixed-endpoint patterns. The HTML view provides support filtering and point details on hover."),
+        "deletion_rainfall_midpoint.pdf": ("Deletion Rainfall: Circular Midpoint", f"{rainfall_display_definition(config, burden)} This companion view uses the same eligible exact deletions, placed by the circular midpoint of the deleted interval. Origin-spanning deletions are positioned by the midpoint along the deleted circular path rather than by a simple linear average. The HTML view provides support filtering and point details on hover."),
+        "circular_breakpoint_chords_all.pdf": ("Circular Breakpoint Chords", f"{rainfall_display_definition(config, burden)} Each chord joins the alignment-directed left and right breakpoints of one exact deletion. The baseline PDF uses the rainfall display threshold and any explicitly configured count cap; the HTML view loads every threshold-eligible call and provides normalized-support and raw-observation controls. Chord color uses the same normalized-support scale as the rainfall plots."),
         "exact_deletion_comparison_chords.pdf": ("Exact Deletion Group Comparison Chords", "Each chord represents one exact deletion with at least one supporting observation in either group of a configured comparison. Chord color is the normalized mean-support difference between groups. The HTML views provide explicit replicate-level, exploratory, and technical read-depth presets plus optional display refinements."),
-        "breakpoint_pair_support_map.pdf": ("Breakpoint-Pair Support Map", f"{rainfall_display_definition(config, burden)} Each point is one unique left/right breakpoint pair after applying the same display threshold and optional per-group cap as the rainfall plots. Marker numbers use the same group-specific support ranks as the three rainfall views. The x-axis is the left breakpoint; the y-axis is the right breakpoint, with origin-crossing right breakpoints shown above the horizontal genome-end line."),
+        "breakpoint_pair_support_map.pdf": ("Breakpoint-Pair Support Map", f"{rainfall_display_definition(config, burden)} Each point is one unique left/right breakpoint pair after applying the same display threshold and optional per-group cap as the rainfall plots. Marker numbers use the same group-specific support ranks as the breakpoint-pair view. The x-axis is the left breakpoint; the y-axis is the right breakpoint, with origin-crossing right breakpoints shown above the horizontal genome-end line."),
         "pooled_breakpoint_support_density.pdf": ("Pooled Breakpoint Support Density", f"{rainfall_display_definition(config, burden)} This group-split view summarizes where deletion endpoints accumulate along the mitochondrial genome after pooling left and right breakpoints within each group. Stacked bars show binned support split by left versus right endpoint; the line is circular-smoothed total endpoint support."),
         "pooled_breakpoint_support_density_capped.pdf": ("Pooled Breakpoint Support Density: Capped Scale", f"{rainfall_display_definition(config, burden)} This is the same group-split endpoint-density view with the y-axis capped so smaller secondary breakpoint hotspots remain visible when one region dominates."),
         "affected_feature_support.pdf": ("Affected Features: Normalized Abundance", f"This bar chart compares affected-feature categories after normalizing each sample {normalization_phrase(burden)}. Use this as the main abundance view when groups have different sequencing depth or mitochondrial read recovery."),

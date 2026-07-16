@@ -136,7 +136,8 @@ plots:
   enabled: true
   large_deletion_min_size: 1000
   rainfall_min_support_per_million: 0.0
-  rainfall_max_points_per_group: 300
+  # Zero keeps all calls passing rainfall_min_support_per_million; the report slider filters them interactively.
+  rainfall_max_points_per_group: 0
   endpoint_density_bin_size: 50
   endpoint_density_smooth_bins: 7
 report:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import re
 import textwrap
 from pathlib import Path
@@ -850,6 +851,34 @@ def apply_cluster_coordinates(reads: pd.DataFrame, clusters: pd.DataFrame | None
                 if cluster_col in df.columns:
                     df[col] = df[cluster_col].where(df[cluster_col].notna(), df[col])
             df = df.drop(columns=[col for col in df.columns if col.startswith("_cluster_")])
+            # Cluster-level annotations are the canonical labels for a deletion.
+            # Preserve any read-level value, while filling missing values from the
+            # representative cluster row for interactive plot metadata.
+            metadata_columns = [
+                "affected_feature_label",
+                "affected_features",
+                "replication_arc_context",
+                "major_arc_deleted_bp",
+                "minor_arc_deleted_bp",
+                "known_deletion_label",
+                "deleted_interval",
+                "wraps_origin",
+            ]
+            available_metadata = [column for column in metadata_columns if column in clusters.columns]
+            if available_metadata:
+                cluster_metadata = clusters[[id_col, *available_metadata]].drop_duplicates(id_col).copy()
+                cluster_metadata = cluster_metadata.rename(
+                    columns={column: f"_cluster_meta_{column}" for column in available_metadata}
+                )
+                df = df.merge(cluster_metadata, on=id_col, how="left")
+                for column in available_metadata:
+                    cluster_column = f"_cluster_meta_{column}"
+                    if column not in df.columns:
+                        df[column] = df[cluster_column]
+                    else:
+                        missing = df[column].isna() | df[column].astype(str).eq("")
+                        df.loc[missing, column] = df.loc[missing, cluster_column]
+                df = df.drop(columns=[f"_cluster_meta_{column}" for column in available_metadata])
     for col in ["left_breakpoint", "right_breakpoint", "deleted_size"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -1374,6 +1403,107 @@ def save_location_sidecar(fig: plt.Figure, path: str, group: str) -> None:
     fig.savefig(sidecar_pdf.with_suffix(".svg"), bbox_inches="tight")
 
 
+def svg_attribute_value(value: object) -> str:
+    if value is None or (isinstance(value, float) and not np.isfinite(value)):
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return html.escape(str(value), quote=True)
+
+
+def save_rainfall_interactive_sidecar(
+    fig: plt.Figure,
+    ax: plt.Axes,
+    path: str,
+    group: str,
+    data: pd.DataFrame,
+    x_col: str,
+    support_min: float,
+    support_max: float,
+    support_norm: colors.Normalize,
+    cmap,
+) -> None:
+    """Write a full-call SVG with point metadata for the report controls.
+
+    The static Matplotlib point collections are hidden in this sidecar and replaced
+    by individually addressable circles. This keeps the PDF unchanged while making
+    support filtering and hover inspection independent of the static display.
+    """
+    if data.empty:
+        return
+    sidecar = Path(path).with_name(f"{Path(path).stem}__{safe_filename(group)}__interactive.svg")
+    ensure_parent(sidecar)
+    fig.canvas.draw()
+    canvas_width, canvas_height = fig.canvas.get_width_height()
+    temporary = sidecar.with_suffix(".tmp.svg")
+    fig.savefig(temporary, format="svg")
+    svg = temporary.read_text(encoding="utf-8")
+    temporary.unlink(missing_ok=True)
+    viewbox_match = re.search(r'<svg\b[^>]*\bviewBox="0 0 ([0-9.eE+-]+) ([0-9.eE+-]+)"', svg)
+    if not viewbox_match:
+        return
+    viewbox_width = float(viewbox_match.group(1))
+    viewbox_height = float(viewbox_match.group(2))
+    scale_x = viewbox_width / float(canvas_width)
+    scale_y = viewbox_height / float(canvas_height)
+    circles = []
+    sort_columns = ["_plot_support", *[col for col in ["exact_deletion_id", "left_breakpoint", "right_breakpoint"] if col in data.columns]]
+    work = data.sort_values(sort_columns, ascending=[True] * len(sort_columns), kind="mergesort")
+    marker_areas = rainfall_point_sizes(work["_plot_support"], support_min, support_max)
+    for (_, row), marker_area in zip(work.iterrows(), marker_areas):
+        x_value = float(row[x_col])
+        y_value = float(row["deleted_size"])
+        display_x, display_y = ax.transData.transform((x_value, y_value))
+        color = colors.to_hex(cmap(support_norm(float(row["_plot_support"]))), keep_alpha=False)
+        radius = max(1.7, float(np.sqrt(float(marker_area) / np.pi))) * scale_x
+        attrs = {
+            "class": "rainfall-point",
+            "cx": f"{display_x * scale_x:.3f}",
+            "cy": f"{viewbox_height - display_y * scale_y:.3f}",
+            "r": f"{radius:.3f}",
+            "fill": color,
+            "fill-opacity": "0.86",
+            "stroke": ORIGIN_OUTLINE_COLOR if bool(row.get("crosses_origin", False)) else "#17202a",
+            "stroke-width": "1.15" if bool(row.get("crosses_origin", False)) else "0.45",
+            "data-group": group,
+            "data-exact-deletion-id": row.get("exact_deletion_id", ""),
+            "data-left-breakpoint": row.get("left_breakpoint", ""),
+            "data-right-breakpoint": row.get("right_breakpoint", ""),
+            "data-deleted-size": row.get("deleted_size", ""),
+            "data-support": row.get("_plot_support", ""),
+            "data-supporting-reads": row.get("supporting_reads", ""),
+            "data-crosses-origin": "yes" if bool(row.get("crosses_origin", False)) else "no",
+            "data-affected-features": row.get("affected_feature_label", row.get("affected_features", "")),
+            "data-arc-context": row.get("replication_arc_context", ""),
+            "data-major-arc-bp": row.get("major_arc_deleted_bp", ""),
+            "data-minor-arc-bp": row.get("minor_arc_deleted_bp", ""),
+            "data-known-deletion": row.get("known_deletion_label", ""),
+        }
+        rendered = " ".join(f'{key}="{svg_attribute_value(value)}"' for key, value in attrs.items())
+        circles.append(f"<circle {rendered}/>")
+    root_match = re.search(r"<svg\b[^>]*>", svg)
+    if not root_match:
+        return
+    metadata = (
+        f' data-plot-type="rainfall" data-group="{svg_attribute_value(group)}"'
+        f' data-call-count="{len(work)}" data-support-min="{svg_attribute_value(support_min)}"'
+        f' data-support-max="{svg_attribute_value(support_max)}"'
+    )
+    root_end = root_match.end() - 1
+    svg = svg[:root_end] + metadata + svg[root_end:]
+    style = (
+        "<style>g[id^=\"rainfall-static-points-\"]{display:none;}.rainfall-point{cursor:help;}"
+        ".rainfall-point:hover{stroke:#172b4d;stroke-width:1.8;fill-opacity:1;}</style>"
+    )
+    svg = svg[: root_end + len(metadata) + 1] + style + svg[root_end + len(metadata) + 1 :]
+    overlay = '<g id="rainfall-interactive-points">' + "".join(circles) + "</g>"
+    svg = svg.replace("</svg>", overlay + "</svg>")
+    sidecar.write_text(svg, encoding="utf-8")
+
+
 def clear_location_sidecars(path: str) -> None:
     for old in Path(path).parent.glob(f"{Path(path).stem}__*.pdf"):
         old.unlink()
@@ -1392,6 +1522,7 @@ def add_location_legend(
     show_origin_outline: bool,
     origin_label: str,
     note: str | None = None,
+    show_rank_note: bool = True,
 ) -> None:
     legend_ax.set_axis_off()
     legend_ax.text(0.5, 0.82, "Point color", ha="center", va="center", fontsize=9, fontweight="bold", transform=legend_ax.transAxes)
@@ -1407,11 +1538,7 @@ def add_location_legend(
     if show_origin_outline:
         legend_ax.scatter([0.30], [0.21], s=120, facecolors="none", edgecolors=ORIGIN_OUTLINE_COLOR, linewidths=1.5, transform=legend_ax.transAxes, clip_on=False)
         legend_ax.text(0.44, 0.21, origin_label, va="center", fontsize=8, transform=legend_ax.transAxes)
-    rank_note = (
-        "Number inside marker = support rank within this group (1 = highest).\n"
-        "Ranks match across left, right, midpoint, and breakpoint-pair plots.\n"
-        "Numbers are omitted when the marker is too small."
-    )
+    rank_note = "Numbers identify the same support-ranked calls across the breakpoint-pair view." if show_rank_note else "Interactive HTML report: hover a point for exact deletion details."
     if note:
         rank_note += f"\n{note}"
     legend_ax.text(0.5, 0.075, rank_note, ha="center", va="center", fontsize=7.1, linespacing=1.18, transform=legend_ax.transAxes)
@@ -1452,9 +1579,24 @@ def prepare_location_plot_data(
     group_columns = ["_plot_group", "left_breakpoint", "right_breakpoint", "deleted_size"]
     if "exact_deletion_id" in df.columns:
         group_columns.append("exact_deletion_id")
+    metadata_columns = [
+        "affected_feature_label",
+        "affected_features",
+        "replication_arc_context",
+        "major_arc_deleted_bp",
+        "minor_arc_deleted_bp",
+        "known_deletion_label",
+        "deleted_interval",
+        "wraps_origin",
+    ]
+    aggregation = {
+        "supporting_reads": ("sample", "size"),
+        "support_per_million_mt_reads": ("_support_weight", "sum"),
+    }
+    aggregation.update({column: (column, "first") for column in metadata_columns if column in df.columns})
     grouped = (
         df.groupby(group_columns, as_index=False, dropna=False)
-        .agg(supporting_reads=("sample", "size"), support_per_million_mt_reads=("_support_weight", "sum"))
+        .agg(**aggregation)
     )
     grouped["_plot_support"] = pd.to_numeric(grouped[support_col], errors="coerce").fillna(0)
     if support_col == "support_per_million_mt_reads" and min_support_per_million > 0:
@@ -1496,7 +1638,16 @@ def draw_location_points(
     support_norm: colors.Normalize,
     cmap,
     outline_crossing: bool = True,
+    artist_prefix: str | None = None,
 ):
+    artist_index = 0
+
+    def mark_artist(artist) -> None:
+        nonlocal artist_index
+        if artist_prefix:
+            artist.set_gid(f"{artist_prefix}-{artist_index}")
+            artist_index += 1
+
     non_origin = data[~data["crosses_origin"]]
     origin = data[data["crosses_origin"]]
     scatter = None
@@ -1514,6 +1665,7 @@ def draw_location_points(
             alpha=1.0,
             zorder=3,
         )
+        mark_artist(scatter)
     if not origin.empty:
         for chunk_index, chunk in enumerate(support_ordered_groups(origin)):
             chunk_sizes = rainfall_point_sizes(chunk["_plot_support"], support_min, support_max)
@@ -1530,11 +1682,13 @@ def draw_location_points(
                 alpha=1.0,
                 zorder=zbase,
             )
+            mark_artist(origin_scatter)
             if scatter is None:
                 scatter = origin_scatter
             if outline_crossing:
                 outer_lw, _ = origin_outline_linewidths(chunk_sizes)
-                ax.scatter(chunk[x_col], chunk[y_col], s=chunk_sizes, facecolors="none", edgecolors=ORIGIN_OUTLINE_COLOR, linewidths=outer_lw, alpha=0.98, zorder=zbase + 0.01)
+                outline = ax.scatter(chunk[x_col], chunk[y_col], s=chunk_sizes, facecolors="none", edgecolors=ORIGIN_OUTLINE_COLOR, linewidths=outer_lw, alpha=0.98, zorder=zbase + 0.01)
+                mark_artist(outline)
     return scatter
 
 
@@ -1622,15 +1776,24 @@ def location_rainfall(
             legend_ax.set_axis_off()
         else:
             cmap = location_support_colormap()
-            scatter = draw_location_points(ax, sub, "_plot_x", "deleted_size", support_min, support_max, support_norm, cmap, outline_crossing=True)
+            scatter = draw_location_points(
+                ax,
+                sub,
+                "_plot_x",
+                "deleted_size",
+                support_min,
+                support_max,
+                support_norm,
+                cmap,
+                outline_crossing=True,
+                artist_prefix="rainfall-static-points",
+            )
         ax.set_title(f"{title_prefix}: {group}")
         ax.set_ylabel("Deleted size (bp)")
         y_max = max(10_000, float(sub["deleted_size"].max()) * 1.18) if not sub.empty else 10_000
         ax.set_ylim(y_axis_min, y_max)
         format_deletion_size_log_axis(ax)
         ax.set_xlim(1, genome_length)
-        if not sub.empty:
-            draw_location_rank_labels(ax, sub, "_plot_x", "deleted_size", support_min, support_max, support_norm, cmap)
         draw_location_feature_track(feature_ax, plot_features, genome_length, x_min=1, x_max=genome_length)
         feature_ax.set_xlabel(x_label)
         if scatter is not None:
@@ -1644,8 +1807,21 @@ def location_rainfall(
                 support_label,
                 show_origin_outline=bool(sub["crosses_origin"].any()),
                 origin_label="cyan outline =\norigin-spanning deletion",
+                show_rank_note=False,
             )
         save_location_sidecar(fig, path, group)
+        save_rainfall_interactive_sidecar(
+            fig,
+            ax,
+            path,
+            group,
+            sub,
+            "_plot_x",
+            support_min,
+            support_max,
+            support_norm,
+            cmap,
+        )
         figures.append(fig)
     write_location_plot_pages(figures, path)
     for fig in figures:

@@ -1,3 +1,52 @@
+document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
+  const target = document.getElementById(controls.dataset.target);
+  const points = Array.from(target.querySelectorAll('.rainfall-point'));
+  const slider = controls.querySelector('[data-rainfall-support-slider]');
+  const supportOutput = controls.querySelector('[data-rainfall-support-output]');
+  const reset = controls.querySelector('[data-reset-rainfall-controls]');
+  const status = controls.querySelector('[data-rainfall-filter-status]');
+  const supports = points.map((point) => Number(point.dataset.support)).filter(Number.isFinite);
+  const supportMin = Math.min(...supports);
+  const supportMax = Math.max(...supports);
+
+  function formatRainfallSupport(value) {
+    if (value >= 100) return value.toFixed(0);
+    if (value >= 10) return value.toFixed(1).replace(/\.0$/, '');
+    if (value >= 1) return value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+    return value.toPrecision(3).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function supportThreshold() {
+    const fraction = Number(slider.value) / Number(slider.max);
+    if (!Number.isFinite(supportMin) || !Number.isFinite(supportMax) || supportMin <= 0) return 0;
+    if (fraction <= 0) return 0;
+    if (supportMax <= supportMin) return supportMin;
+    return supportMin * Math.pow(supportMax / supportMin, fraction);
+  }
+
+  function renderRainfall() {
+    const threshold = supportThreshold();
+    let visible = 0;
+    points.forEach((point) => {
+      const keep = Number(point.dataset.support) >= threshold;
+      point.style.display = keep ? '' : 'none';
+      if (keep) visible += 1;
+    });
+    supportOutput.textContent = Number(slider.value) === 0
+      ? 'All loaded calls'
+      : `>= ${formatRainfallSupport(threshold)}`;
+    status.textContent = `Showing ${visible.toLocaleString()} of ${points.length.toLocaleString()} loaded exact deletions`;
+  }
+
+  slider.addEventListener('input', renderRainfall);
+  reset.addEventListener('click', () => {
+    slider.value = '0';
+    renderRainfall();
+  });
+  renderRainfall();
+});
+
+
     document.querySelectorAll('[data-chord-controls]').forEach((controls) => {
       const target = document.getElementById(controls.dataset.target);
       const chords = Array.from(target.querySelectorAll('.deletion-chord'));
@@ -194,7 +243,20 @@
     function populateTooltip(target) {
       hoverTooltip.replaceChildren();
       const heading = document.createElement('strong');
-      if (target.classList.contains('comparison-chord')) {
+      if (target.classList.contains('rainfall-point')) {
+        heading.textContent = target.dataset.exactDeletionId || 'Exact deletion';
+        hoverTooltip.appendChild(heading);
+        addTooltipRow('Group', target.dataset.group || 'NA');
+        addTooltipRow('Directed breakpoints', `${formatTooltipNumber(target.dataset.leftBreakpoint)} to ${formatTooltipNumber(target.dataset.rightBreakpoint)}`);
+        addTooltipRow('Deleted size', `${formatTooltipNumber(target.dataset.deletedSize)} bp`);
+        addTooltipRow('Normalized support', formatTooltipNumber(target.dataset.support));
+        addTooltipRow('Supporting observations', formatTooltipNumber(target.dataset.supportingReads));
+        addTooltipRow('Affected features', (target.dataset.affectedFeatures || 'NA').replaceAll('_', ' '));
+        addTooltipRow('Arc annotation', (target.dataset.arcContext || 'NA').replaceAll('_', ' '));
+        addTooltipRow('Major/minor arc bp', `${formatTooltipNumber(target.dataset.majorArcBp)} / ${formatTooltipNumber(target.dataset.minorArcBp)}`);
+        addTooltipRow('Origin-spanning', target.dataset.crossesOrigin || 'NA');
+        if (target.dataset.knownDeletion) addTooltipRow('Configured match', target.dataset.knownDeletion.replaceAll('_', ' '));
+      } else if (target.classList.contains('comparison-chord')) {
         heading.textContent = `Comparison rank ${target.dataset.rank}: ${target.dataset.deletionId}`;
         hoverTooltip.appendChild(heading);
         addTooltipRow('Directed breakpoints', `${Number(target.dataset.leftBreakpoint).toLocaleString()} to ${Number(target.dataset.rightBreakpoint).toLocaleString()}`);
@@ -237,7 +299,7 @@
 
     document.addEventListener('pointerover', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('.deletion-chord, .comparison-chord, .mt-feature')
+        ? event.target.closest('.rainfall-point, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       if (!target) return;
       populateTooltip(target);
@@ -249,10 +311,10 @@
     });
     document.addEventListener('pointerout', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('.deletion-chord, .comparison-chord, .mt-feature')
+        ? event.target.closest('.rainfall-point, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       const related = event.relatedTarget instanceof Element
-        ? event.relatedTarget.closest('.deletion-chord, .comparison-chord, .mt-feature')
+        ? event.relatedTarget.closest('.rainfall-point, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       if (target && target !== related) hoverTooltip.style.display = 'none';
     });
