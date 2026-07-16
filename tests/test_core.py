@@ -877,6 +877,30 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(calls["exact_deletion_id"].tolist(), ["mtDel_supported"])
         self.assertEqual(calls["_total_supporting_observations"].tolist(), [2])
 
+    def test_circular_comparison_plot_replaces_existing_replication_arc_columns(self):
+        comparison = pd.DataFrame(
+            [
+                {
+                    "exact_deletion_id": "mtDel_supported",
+                    "left_group": "control",
+                    "right_group": "treated",
+                    "left_breakpoint": 100,
+                    "right_breakpoint": 300,
+                    "deleted_size": 199,
+                    "difference_per_million_mt_reads": 0.5,
+                    "left_total_supporting_reads": 1,
+                    "right_total_supporting_reads": 2,
+                    "replication_arc_context": "stale",
+                    "minor_arc_deleted_bp": -1,
+                    "major_arc_deleted_bp": -1,
+                }
+            ]
+        )
+        calls = prepare_comparison_calls(comparison, {}, genome_length=1000)
+        for column in ["replication_arc_context", "minor_arc_deleted_bp", "major_arc_deleted_bp"]:
+            self.assertEqual(calls.columns.tolist().count(column), 1)
+        self.assertEqual(calls.loc[0, "replication_arc_context"], "not_configured")
+
     def test_report_circular_chord_panels_include_interactive_controls(self):
         import tempfile
 

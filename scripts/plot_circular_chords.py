@@ -674,6 +674,8 @@ def annotate_replication_arcs(calls: pd.DataFrame, config: dict, genome_length: 
         replication_arc_annotation(config, int(row.left_breakpoint), int(row.right_breakpoint), genome_length)
         for row in out.itertuples()
     ]
+    arc_columns = ["replication_arc_context", "minor_arc_deleted_bp", "major_arc_deleted_bp"]
+    out = out.drop(columns=[column for column in arc_columns if column in out.columns])
     return pd.concat([out.reset_index(drop=True), pd.DataFrame(arc_rows)], axis=1)
 
 
