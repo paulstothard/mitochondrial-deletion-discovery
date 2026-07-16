@@ -35,6 +35,7 @@ from plot_deletion_results import (
     endpoint_density_figure,
     endpoint_density_hotspots,
     endpoint_density_pages,
+    breakpoint_pair_support_map,
     location_rainfall,
     location_features,
     mitochondrial_axis_bounds,
@@ -44,6 +45,7 @@ from plot_deletion_results import (
     support_scale_limits,
     rainfall_support_limits,
     rainfall_y_axis_min,
+    ordination,
     prepare_location_plot_data,
     support_legend_values,
     support_size_legend_values,
@@ -53,9 +55,11 @@ from estimate_breakpoint_reference_support import circular_window, window_covere
 from make_deletion_report import (
     assay_limitations,
     assumptions_section,
+    breakpoint_pair_plot_panel,
     circular_comparison_plot_panel,
     circular_location_plot_panel,
     endpoint_density_plot_panel,
+    plot_panel,
     rainfall_location_plot_panel,
     configured_replication_arc_table,
     exact_deletion_display_table,
@@ -68,7 +72,14 @@ from make_deletion_report import (
     write_configured_sequence_read_lists,
     write_exact_deletion_read_lists,
 )
-from plot_circular_chords import add_feature_ring, chord_path, circle_point, prepare_comparison_calls
+from plot_circular_chords import (
+    add_feature_ring,
+    add_svg_chord_metadata,
+    chord_dom_id,
+    chord_path,
+    circle_point,
+    prepare_comparison_calls,
+)
 from resolve_samples import derive_age, derive_replicate, derive_treatment, make_sample_id, validate_dataset_inputs
 from search_known_sequences import compiled_searches, match_multi_required, match_single, sample_from_fastq, scan_fastq_for_searches
 from select_whole_genome_mt_from_sam import classify_group
@@ -842,6 +853,37 @@ class CoreTests(unittest.TestCase):
         self.assertTrue((path.vertices[0] == circle_point(100, 0.9, genome_length)).all())
         self.assertTrue((path.vertices[-1] == circle_point(800, 0.9, genome_length)).all())
 
+    def test_circular_chord_metadata_includes_affected_features(self):
+        import tempfile
+
+        calls = pd.DataFrame(
+            [
+                {
+                    "_plot_support": 0.25,
+                    "supporting_reads": 3,
+                    "_support_rank": 1,
+                    "exact_deletion_id": "mtDel_00100_00500_00399",
+                    "left_breakpoint": 100,
+                    "right_breakpoint": 500,
+                    "deleted_size": 399,
+                    "affected_feature_label": "MT-ND1+MT-CO1",
+                    "replication_arc_context": "major_and_minor_arcs",
+                    "major_arc_deleted_bp": 200,
+                    "minor_arc_deleted_bp": 199,
+                }
+            ]
+        )
+        node_id = chord_dom_id("all", "treated", calls.iloc[0])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "chords.svg"
+            path.write_text(
+                f'<svg xmlns="http://www.w3.org/2000/svg"><g id="{node_id}"><path d="M 0 0"/></g></svg>',
+                encoding="utf-8",
+            )
+            add_svg_chord_metadata(path, calls, "all", "treated")
+            svg = path.read_text(encoding="utf-8")
+        self.assertIn('data-affected-features="MT-ND1+MT-CO1"', svg)
+
     def test_circular_comparison_plot_accepts_a_zero_row_table(self):
         calls = prepare_comparison_calls(pd.DataFrame(), {}, genome_length=1000)
         self.assertTrue(calls.empty)
@@ -932,6 +974,11 @@ class CoreTests(unittest.TestCase):
             location_html = circular_location_plot_panel(str(location), "Location", "Caption", "plots")
             self.assertIn("data-support-slider", location_html)
             self.assertIn("data-observation-filter", location_html)
+            self.assertIn('data-size-filter', location_html)
+            self.assertIn('value="1000">&ge; 1,000 bp', location_html)
+            self.assertIn('value="10000">&ge; 10,000 bp', location_html)
+            self.assertIn('value="100">&ge; 100', location_html)
+            self.assertIn('value="200">&ge; 200', location_html)
             self.assertIn("Moving the support slider returns this setting to Auto", location_html)
             self.assertIn("group A", location_html)
 
@@ -1017,6 +1064,9 @@ class CoreTests(unittest.TestCase):
             panel = rainfall_location_plot_panel(str(path), "Rainfall", "Caption", "plots")
             self.assertIn("data-rainfall-controls", panel)
             self.assertIn("data-rainfall-support-slider", panel)
+            self.assertIn('data-size-filter', panel)
+            self.assertIn('value="1000">&ge; 1,000 bp', panel)
+            self.assertIn('value="10000">&ge; 10,000 bp', panel)
             self.assertIn("eligible call set loaded for this view contains 2 calls", panel)
 
     def test_rainfall_support_scaling_uses_observed_range(self):
@@ -1076,6 +1126,91 @@ class CoreTests(unittest.TestCase):
             panel = endpoint_density_plot_panel(str(path), "Density", "Caption", "plots")
             self.assertIn("Hover a density bin", panel)
             self.assertIn("10 bins", panel)
+
+    def test_breakpoint_pair_map_has_point_hover_metadata(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "breakpoint_pair_support_map.pdf"
+            calls = pd.DataFrame(
+                [
+                    {
+                        "_plot_group": "treated",
+                        "left_breakpoint": 900,
+                        "right_breakpoint": 100,
+                        "deleted_size": 200,
+                        "_plot_support": 2.5,
+                        "supporting_reads": 4,
+                        "_support_rank": 1,
+                        "exact_deletion_id": "mtDel_00900_00100_00200",
+                        "affected_feature_label": "MT-ND1+MT-CO1",
+                        "replication_arc_context": "major_and_minor_arcs",
+                        "major_arc_deleted_bp": 120,
+                        "minor_arc_deleted_bp": 80,
+                    }
+                ]
+            )
+            breakpoint_pair_support_map(
+                calls,
+                ["treated"],
+                pd.DataFrame(),
+                {},
+                1000,
+                str(path),
+                "Normalized support",
+            )
+            interactive = path.with_name("breakpoint_pair_support_map__treated__interactive.svg")
+            svg = interactive.read_text(encoding="utf-8")
+            self.assertIn('class="breakpoint-pair-point"', svg)
+            self.assertIn('data-exact-deletion-id="mtDel_00900_00100_00200"', svg)
+            self.assertIn('data-affected-features="MT-ND1+MT-CO1"', svg)
+            self.assertIn('data-plot-type="breakpoint-pair-map"', svg)
+
+            panel = breakpoint_pair_plot_panel(str(path), "Breakpoint pairs", "Caption", "plots")
+            self.assertIn("Hover a point to inspect its breakpoint pair", panel)
+            self.assertIn("Open PDF", panel)
+
+    def test_ordination_report_panel_mentions_sample_hover(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "exact_deletion_pca.pdf"
+            path.write_bytes(b"pdf")
+            path.with_suffix(".svg").write_text(
+                '<svg data-plot-type="ordination" data-point-count="2">'
+                '<circle class="ordination-point" data-sample="S1"/></svg>',
+                encoding="utf-8",
+            )
+            panel = plot_panel(str(path), "PCA", "Caption", "plots")
+            self.assertIn("Hover a sample to inspect its coordinates", panel)
+
+    def test_ordination_has_sample_hover_metadata(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "exact_deletion_pca.pdf"
+            matrix = pd.DataFrame(
+                {
+                    "sample": ["S1", "S2", "S3"],
+                    "mtDel_a": [1.0, 0.0, 2.0],
+                    "mtDel_b": [0.0, 2.0, 1.0],
+                }
+            )
+            samples = pd.DataFrame(
+                {
+                    "sample": ["S1", "S2", "S3"],
+                    "condition": ["control", "treated", "treated"],
+                    "biological_replicate": ["1", "1", "2"],
+                    "layout": ["single", "single", "single"],
+                    "tissue": ["muscle", "muscle", "muscle"],
+                }
+            )
+            ordination(matrix, samples, "condition", str(path), "Exact Deletion PCA", "pca")
+            svg = path.with_suffix(".svg").read_text(encoding="utf-8")
+            self.assertEqual(svg.count('class="ordination-point"'), 3)
+            self.assertIn('data-plot-type="ordination"', svg)
+            self.assertIn('data-sample="S1"', svg)
+            self.assertIn('data-group="control"', svg)
     def test_pooled_endpoint_density_tracks_left_and_right_support(self):
         calls = pd.DataFrame(
             [

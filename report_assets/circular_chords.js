@@ -3,6 +3,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
   const points = Array.from(target.querySelectorAll('.rainfall-point'));
   const slider = controls.querySelector('[data-rainfall-support-slider]');
   const supportOutput = controls.querySelector('[data-rainfall-support-output]');
+  const sizeFilter = controls.querySelector('[data-size-filter]');
   const reset = controls.querySelector('[data-reset-rainfall-controls]');
   const status = controls.querySelector('[data-rainfall-filter-status]');
   const supports = points.map((point) => Number(point.dataset.support)).filter(Number.isFinite);
@@ -26,21 +27,25 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
 
   function renderRainfall() {
     const threshold = supportThreshold();
+    const minimumSize = sizeFilter ? Number(sizeFilter.value) : 0;
     let visible = 0;
     points.forEach((point) => {
-      const keep = Number(point.dataset.support) >= threshold;
+      const keep = Number(point.dataset.support) >= threshold
+        && Number(point.dataset.deletedSize) >= minimumSize;
       point.style.display = keep ? '' : 'none';
       if (keep) visible += 1;
     });
     supportOutput.textContent = Number(slider.value) === 0
       ? 'All loaded calls'
       : `>= ${formatRainfallSupport(threshold)}`;
-    status.textContent = `Showing ${visible.toLocaleString()} of ${points.length.toLocaleString()} loaded exact deletions`;
+    const sizeNote = minimumSize > 0 ? `, deleted size >= ${minimumSize.toLocaleString()} bp` : '';
+    status.textContent = `Showing ${visible.toLocaleString()} of ${points.length.toLocaleString()} loaded exact deletions${sizeNote}`;
   }
 
   slider.addEventListener('input', renderRainfall);
   reset.addEventListener('click', () => {
     slider.value = '0';
+    if (sizeFilter) sizeFilter.value = '0';
     renderRainfall();
   });
   renderRainfall();
@@ -53,6 +58,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
       const slider = controls.querySelector('[data-support-slider]');
       const supportOutput = controls.querySelector('[data-support-output]');
       const observationFilter = controls.querySelector('[data-observation-filter]');
+      const sizeFilter = controls.querySelector('[data-size-filter]');
       const linkedOption = controls.querySelector('[data-linked-option]');
       const reset = controls.querySelector('[data-reset-controls]');
       const status = controls.querySelector('[data-filter-status]');
@@ -77,11 +83,13 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
 
       function render() {
         const threshold = supportThreshold();
+        const minimumSize = sizeFilter ? Number(sizeFilter.value) : 0;
         const linked = observationFilter.value === 'linked';
         const supportEligible = chords.filter((chord) => Number(chord.dataset.support) >= threshold);
+        const sizeEligible = supportEligible.filter((chord) => Number(chord.dataset.deletedSize) >= minimumSize);
         const candidateChords = baselineMode
           ? chords.filter((chord) => chord.dataset.baseline === '1')
-          : supportEligible;
+          : sizeEligible;
         const candidateObservations = candidateChords.map((chord) => Number(chord.dataset.observations));
         const linkedMinimum = candidateObservations.length ? Math.min(...candidateObservations) : 0;
         const minimumObservations = linked ? linkedMinimum : Number(observationFilter.value);
@@ -89,7 +97,8 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         chords.forEach((chord) => {
           const passesPrimary = baselineMode
             ? chord.dataset.baseline === '1'
-            : Number(chord.dataset.support) >= threshold;
+            : Number(chord.dataset.support) >= threshold
+              && Number(chord.dataset.deletedSize) >= minimumSize;
           const keep = passesPrimary && Number(chord.dataset.observations) >= minimumObservations;
           chord.style.display = keep ? '' : 'none';
           if (keep) visible += 1;
@@ -101,7 +110,8 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
           ? 'PDF baseline'
           : (Number(slider.value) === 0 ? 'All loaded calls' : `>= ${formatSupport(threshold)}`);
         const baselineNote = baselineMode ? ' (PDF baseline)' : '';
-        status.textContent = `Showing ${visible.toLocaleString()} of ${chords.length.toLocaleString()} loaded exact deletions${baselineNote}`;
+        const sizeNote = minimumSize > 0 ? `, deleted size >= ${minimumSize.toLocaleString()} bp` : '';
+        status.textContent = `Showing ${visible.toLocaleString()} of ${chords.length.toLocaleString()} loaded exact deletions${sizeNote}${baselineNote}`;
       }
 
       slider.addEventListener('input', () => {
@@ -113,10 +123,17 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         baselineMode = false;
         render();
       });
+      if (sizeFilter) {
+        sizeFilter.addEventListener('change', () => {
+          baselineMode = false;
+          render();
+        });
+      }
       reset.addEventListener('click', () => {
         baselineMode = true;
         slider.value = '0';
         observationFilter.value = 'linked';
+        if (sizeFilter) sizeFilter.value = '0';
         render();
       });
       render();
@@ -267,6 +284,27 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         addTooltipRow('Total raw support', formatTooltipNumber(target.dataset.summedSupport));
         addTooltipRow('Smoothed support', formatTooltipNumber(target.dataset.smoothedSupport));
         addTooltipRow('Smoothed endpoint count', formatTooltipNumber(target.dataset.smoothedEndpointCount));
+      } else if (target.classList.contains('breakpoint-pair-point')) {
+        heading.textContent = target.dataset.exactDeletionId || 'Breakpoint pair';
+        hoverTooltip.appendChild(heading);
+        addTooltipRow('Group', target.dataset.group || 'NA');
+        addTooltipRow('Directed breakpoints', `${formatTooltipNumber(target.dataset.leftBreakpoint)} to ${formatTooltipNumber(target.dataset.rightBreakpoint)}`);
+        addTooltipRow('Deleted size', `${formatTooltipNumber(target.dataset.deletedSize)} bp`);
+        addTooltipRow('Normalized support', formatTooltipNumber(target.dataset.support));
+        addTooltipRow('Supporting observations', formatTooltipNumber(target.dataset.supportingObservations));
+        addTooltipRow('Exact deletions in pair', formatTooltipNumber(target.dataset.pairCount));
+        addTooltipRow('Affected features', (target.dataset.affectedFeatures || 'NA').replaceAll('_', ' '));
+        addTooltipRow('Origin-spanning', target.dataset.crossesOrigin || 'NA');
+        addTooltipRow('Arc annotation', (target.dataset.arcContext || 'NA').replaceAll('_', ' '));
+      } else if (target.classList.contains('ordination-point')) {
+        heading.textContent = target.dataset.sample || 'Sample';
+        hoverTooltip.appendChild(heading);
+        addTooltipRow('Group', target.dataset.group || 'NA');
+        addTooltipRow(target.dataset.xLabel || 'X', formatTooltipNumber(target.dataset.xValue));
+        addTooltipRow(target.dataset.yLabel || 'Y', formatTooltipNumber(target.dataset.yValue));
+        if (target.dataset.biologicalReplicate) addTooltipRow('Biological replicate', target.dataset.biologicalReplicate);
+        if (target.dataset.layout) addTooltipRow('Read layout', target.dataset.layout);
+        if (target.dataset.tissue) addTooltipRow('Tissue', target.dataset.tissue);
       } else if (target.classList.contains('comparison-chord')) {
         heading.textContent = `Comparison rank ${target.dataset.rank}: ${target.dataset.deletionId}`;
         hoverTooltip.appendChild(heading);
@@ -279,6 +317,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         addTooltipRow('Samples with signal', formatTooltipNumber(target.dataset.samplesWithSignal));
         addTooltipRow('Replicate p / BH q', `${formatTooltipNumber(target.dataset.replicateP)} / ${formatTooltipNumber(target.dataset.replicateQ)}`);
         addTooltipRow('Read-depth Fisher p / BH q', `${formatTooltipNumber(target.dataset.depthP)} / ${formatTooltipNumber(target.dataset.depthQ)}`);
+        addTooltipRow('Affected features', (target.dataset.affectedFeatures || 'NA').replaceAll('_', ' '));
         addTooltipRow('Arc annotation', target.dataset.arcContext.replaceAll('_', ' '));
         if (target.dataset.knownDeletion) addTooltipRow('Known-deletion match', target.dataset.knownDeletion.replaceAll('_', ' '));
       } else if (target.classList.contains('deletion-chord')) {
@@ -288,6 +327,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
         addTooltipRow('Deleted interval', `${Number(target.dataset.deletedSize).toLocaleString()} bp`);
         addTooltipRow('Normalized support', Number(target.dataset.support).toLocaleString(undefined, {maximumSignificantDigits: 4}));
         addTooltipRow('Supporting observations', Number(target.dataset.observations).toLocaleString());
+        addTooltipRow('Affected features', (target.dataset.affectedFeatures || 'NA').replaceAll('_', ' '));
         addTooltipRow('Arc annotation', target.dataset.arcContext.replaceAll('_', ' '));
         addTooltipRow('Major/minor arc bp', `${Number(target.dataset.majorArcBp).toLocaleString()} / ${Number(target.dataset.minorArcBp).toLocaleString()}`);
       } else {
@@ -310,7 +350,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
 
     document.addEventListener('pointerover', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       if (!target) return;
       populateTooltip(target);
@@ -322,10 +362,10 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
     });
     document.addEventListener('pointerout', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.target.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       const related = event.relatedTarget instanceof Element
-        ? event.relatedTarget.closest('.rainfall-point, .endpoint-density-bin, .deletion-chord, .comparison-chord, .mt-feature')
+        ? event.relatedTarget.closest('.rainfall-point, .endpoint-density-bin, .breakpoint-pair-point, .ordination-point, .deletion-chord, .comparison-chord, .mt-feature')
         : null;
       if (target && target !== related) hoverTooltip.style.display = 'none';
     });

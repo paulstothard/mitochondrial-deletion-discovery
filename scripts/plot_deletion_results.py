@@ -133,6 +133,79 @@ def save(fig: plt.Figure, path: str) -> None:
     plt.close(fig)
 
 
+def save_ordination_interactive(
+    fig: plt.Figure,
+    ax: plt.Axes,
+    path: str,
+    data: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    group_col: str,
+) -> None:
+    """Save an ordination with transparent sample hit targets in the SVG report view."""
+    ensure_parent(path)
+    fig.canvas.draw()
+    fig.savefig(path, bbox_inches="tight")
+    svg_path = Path(path).with_suffix(".svg")
+    temporary = svg_path.with_suffix(".tmp.svg")
+    # Keep the SVG in the figure's native coordinate system. The report embeds
+    # this sidecar separately from the tight-cropped PDF, so this keeps display
+    # coordinates aligned even when the legend is outside the axes.
+    fig.savefig(temporary, format="svg")
+    svg = temporary.read_text(encoding="utf-8")
+    temporary.unlink(missing_ok=True)
+    viewbox_match = re.search(
+        r'<svg\b[^>]*\bviewBox="([0-9.eE+-]+) ([0-9.eE+-]+) '
+        r'([0-9.eE+-]+) ([0-9.eE+-]+)"',
+        svg,
+    )
+    root_match = re.search(r"<svg\b[^>]*>", svg)
+    if not viewbox_match or not root_match:
+        svg_path.write_text(svg, encoding="utf-8")
+        plt.close(fig)
+        return
+    viewbox_width = float(viewbox_match.group(3))
+    viewbox_height = float(viewbox_match.group(4))
+    canvas_width, canvas_height = fig.canvas.get_width_height()
+    scale_x = viewbox_width / float(canvas_width)
+    scale_y = viewbox_height / float(canvas_height)
+    circles = []
+    for _, row in data.iterrows():
+        x_value = float(row[x_col])
+        y_value = float(row[y_col])
+        display_x, display_y = ax.transData.transform((x_value, y_value))
+        group = row.get(group_col, "") if group_col else ""
+        group = "" if pd.isna(group) else str(group)
+        attrs = {
+            "class": "ordination-point",
+            "cx": f"{display_x * scale_x:.3f}",
+            "cy": f"{viewbox_height - display_y * scale_y:.3f}",
+            "r": f"{max(4.5, np.sqrt(85.0 / np.pi)) * scale_x:.3f}",
+            "fill": "#285f8f",
+            "fill-opacity": "0",
+            "stroke": "transparent",
+            "data-sample": row.get("sample", ""),
+            "data-group": group,
+            "data-x-label": x_col,
+            "data-y-label": y_col,
+            "data-x-value": x_value,
+            "data-y-value": y_value,
+            "data-biological-replicate": row.get("biological_replicate", ""),
+            "data-layout": row.get("layout", ""),
+            "data-tissue": row.get("tissue", ""),
+        }
+        rendered = " ".join(f'{key}="{svg_attribute_value(value)}"' for key, value in attrs.items())
+        circles.append(f"<circle {rendered}/>")
+    metadata = ' data-plot-type="ordination" data-point-count="{}"'.format(len(circles))
+    root_end = root_match.end() - 1
+    svg = svg[:root_end] + metadata + svg[root_end:]
+    style = '<style>.ordination-point{cursor:help;}.ordination-point:hover{stroke:#172b4d;stroke-width:2;fill-opacity:.16;}</style>'
+    svg = svg[: root_end + len(metadata) + 1] + style + svg[root_end + len(metadata) + 1 :]
+    svg = svg.replace("</svg>", '<g id="ordination-interactive-points">' + "".join(circles) + "</g></svg>")
+    svg_path.write_text(svg, encoding="utf-8")
+    plt.close(fig)
+
+
 def save_multi_page(figures: list[plt.Figure], path: str) -> None:
     ensure_parent(path)
     with PdfPages(path) as pdf:
@@ -1602,6 +1675,85 @@ def save_endpoint_density_interactive_sidecar(
     sidecar.write_text(svg, encoding="utf-8")
 
 
+def save_breakpoint_pair_interactive_sidecar(
+    fig: plt.Figure,
+    ax: plt.Axes,
+    path: str,
+    group: str,
+    pairs: pd.DataFrame,
+    support_min: float,
+    support_max: float,
+) -> None:
+    """Write transparent point hit targets over the breakpoint-pair map SVG."""
+    if pairs.empty:
+        return
+    sidecar = Path(path).with_name(f"{Path(path).stem}__{safe_filename(group)}__interactive.svg")
+    ensure_parent(sidecar)
+    fig.canvas.draw()
+    canvas_width, canvas_height = fig.canvas.get_width_height()
+    temporary = sidecar.with_suffix(".tmp.svg")
+    # Keep the SVG in the figure's native coordinate system so transparent hit
+    # targets use the same transform as the plotted points.
+    fig.savefig(temporary, format="svg")
+    svg = temporary.read_text(encoding="utf-8")
+    temporary.unlink(missing_ok=True)
+    viewbox_match = re.search(
+        r'<svg\b[^>]*\bviewBox="([0-9.eE+-]+) ([0-9.eE+-]+) '
+        r'([0-9.eE+-]+) ([0-9.eE+-]+)"',
+        svg,
+    )
+    root_match = re.search(r"<svg\b[^>]*>", svg)
+    if not viewbox_match or not root_match:
+        return
+    viewbox_width = float(viewbox_match.group(3))
+    viewbox_height = float(viewbox_match.group(4))
+    scale_x = viewbox_width / float(canvas_width)
+    scale_y = viewbox_height / float(canvas_height)
+    circles = []
+    work = pairs.sort_values("_plot_support", ascending=True, kind="mergesort")
+    marker_areas = rainfall_point_sizes(work["_plot_support"], support_min, support_max)
+    for (_, row), marker_area in zip(work.iterrows(), marker_areas):
+        x_value = float(row["left_breakpoint"])
+        y_value = float(row["adjusted_right_breakpoint"])
+        display_x, display_y = ax.transData.transform((x_value, y_value))
+        affected = row.get("affected_feature_label", row.get("affected_features", ""))
+        attrs = {
+            "class": "breakpoint-pair-point",
+            "cx": f"{display_x * scale_x:.3f}",
+            "cy": f"{viewbox_height - display_y * scale_y:.3f}",
+            "r": f"{max(4.0, np.sqrt(float(marker_area) / np.pi)) * scale_x:.3f}",
+            "fill": "#285f8f",
+            "fill-opacity": "0",
+            "stroke": "transparent",
+            "data-group": group,
+            "data-exact-deletion-id": row.get("exact_deletion_id", ""),
+            "data-left-breakpoint": row.get("left_breakpoint", ""),
+            "data-right-breakpoint": row.get("right_breakpoint", ""),
+            "data-deleted-size": row.get("deleted_size", ""),
+            "data-adjusted-right-breakpoint": row.get("adjusted_right_breakpoint", ""),
+            "data-support": row.get("_plot_support", ""),
+            "data-supporting-observations": row.get("supporting_reads", ""),
+            "data-pair-count": row.get("pair_count", ""),
+            "data-crosses-origin": "yes" if bool(row.get("crosses_origin", False)) else "no",
+            "data-affected-features": "" if pd.isna(affected) else affected,
+            "data-arc-context": row.get("replication_arc_context", ""),
+            "data-major-arc-bp": row.get("major_arc_deleted_bp", ""),
+            "data-minor-arc-bp": row.get("minor_arc_deleted_bp", ""),
+        }
+        rendered = " ".join(f'{key}="{svg_attribute_value(value)}"' for key, value in attrs.items())
+        circles.append(f"<circle {rendered}/>")
+    metadata = (
+        f' data-plot-type="breakpoint-pair-map" data-group="{svg_attribute_value(group)}"'
+        f' data-point-count="{len(circles)}"'
+    )
+    root_end = root_match.end() - 1
+    svg = svg[:root_end] + metadata + svg[root_end:]
+    style = '<style>.breakpoint-pair-point{cursor:help;}.breakpoint-pair-point:hover{stroke:#172b4d;stroke-width:2;fill-opacity:.16;}</style>'
+    svg = svg[: root_end + len(metadata) + 1] + style + svg[root_end + len(metadata) + 1 :]
+    svg = svg.replace("</svg>", '<g id="breakpoint-pair-interactive-points">' + "".join(circles) + "</g></svg>")
+    sidecar.write_text(svg, encoding="utf-8")
+
+
 def clear_location_sidecars(path: str) -> None:
     for old in Path(path).parent.glob(f"{Path(path).stem}__*.pdf"):
         old.unlink()
@@ -1950,14 +2102,32 @@ def breakpoint_pair_support_map(display_grouped: pd.DataFrame, groups: list[str]
             ax.text(0.5, 0.5, "No exact deletions meet the breakpoint-pair display threshold", ha="center", va="center", wrap=True, transform=ax.transAxes)
             legend_ax.set_axis_off()
         else:
-            pairs = (
-                sub.groupby(["left_breakpoint", "right_breakpoint", "adjusted_right_breakpoint", "crosses_origin"], as_index=False)
-                .agg(
-                    _plot_support=("_plot_support", "sum"),
-                    supporting_reads=("supporting_reads", "sum"),
-                    _support_rank=("_support_rank", "min"),
+            grouping = ["left_breakpoint", "right_breakpoint", "adjusted_right_breakpoint", "crosses_origin"]
+            aggregations = {
+                "_plot_support": ("_plot_support", "sum"),
+                "supporting_reads": ("supporting_reads", "sum"),
+                "_support_rank": ("_support_rank", "min"),
+                "deleted_size": ("deleted_size", "first"),
+            }
+            if "exact_deletion_id" in sub.columns:
+                aggregations["pair_count"] = ("exact_deletion_id", "nunique")
+                aggregations["exact_deletion_id"] = (
+                    "exact_deletion_id",
+                    lambda values: "+".join(sorted(set(values.dropna().astype(str)))),
                 )
-                .sort_values("_plot_support", ascending=True, kind="mergesort")
+            else:
+                aggregations["pair_count"] = ("left_breakpoint", "size")
+            for column in [
+                "affected_feature_label",
+                "affected_features",
+                "replication_arc_context",
+                "major_arc_deleted_bp",
+                "minor_arc_deleted_bp",
+            ]:
+                if column in sub.columns:
+                    aggregations[column] = (column, "first")
+            pairs = sub.groupby(grouping, as_index=False).agg(**aggregations).sort_values(
+                "_plot_support", ascending=True, kind="mergesort"
             )
             cmap = location_support_colormap()
             scatter = draw_location_points(ax, pairs, "left_breakpoint", "adjusted_right_breakpoint", support_min, support_max, support_norm, cmap, outline_crossing=True)
@@ -1994,6 +2164,15 @@ def breakpoint_pair_support_map(display_grouped: pd.DataFrame, groups: list[str]
                 note="Each dot is one unique left/right breakpoint pair.\nPoints above the horizontal line cross the origin.",
             )
         save_location_sidecar(fig, path, group)
+        save_breakpoint_pair_interactive_sidecar(
+            fig,
+            ax,
+            path,
+            group,
+            pairs if not sub.empty else pd.DataFrame(),
+            support_min,
+            support_max,
+        )
         figures.append(fig)
     write_location_plot_pages(figures, path)
     for fig in figures:
@@ -2219,7 +2398,7 @@ def ordination(matrix: pd.DataFrame, samples: pd.DataFrame, group_col: str, path
     ax.set_title(title)
     if ax.legend_:
         move_legend_outside(ax, title=display_label(group_col))
-    save(fig, path)
+    save_ordination_interactive(fig, ax, path, df, xlabel, ylabel, group_col)
 
 
 def main() -> None:

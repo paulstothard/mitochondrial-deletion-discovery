@@ -867,6 +867,23 @@ def chord_target_id(prefix: str, value: str) -> str:
     return f"{prefix}__{token or 'all'}"
 
 
+DELETION_SIZE_FILTERS = (
+    (0, "All sizes"),
+    (100, "&ge; 100 bp"),
+    (500, "&ge; 500 bp"),
+    (1000, "&ge; 1,000 bp"),
+    (2500, "&ge; 2,500 bp"),
+    (5000, "&ge; 5,000 bp"),
+    (10000, "&ge; 10,000 bp"),
+)
+
+
+def deletion_size_filter_options() -> str:
+    return "\n".join(
+        f'<option value="{value}">{label}</option>' for value, label in DELETION_SIZE_FILTERS
+    )
+
+
 def circular_location_plot_panel(path: str, title: str, caption: str, link_prefix: str) -> str:
     aggregate = Path(path)
     interactive_svgs = sorted(aggregate.parent.glob(f"{aggregate.stem}__*__interactive.svg"))
@@ -896,16 +913,24 @@ def circular_location_plot_panel(path: str, title: str, caption: str, link_prefi
                   <span>Minimum supporting observations</span>
                   <select data-observation-filter>
                     <option value="linked" data-linked-option>Auto</option>
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="5">5</option>
-                    <option value="10">10</option>
+                    <option value="1">&ge; 1</option>
+                    <option value="2">&ge; 2</option>
+                    <option value="5">&ge; 5</option>
+                    <option value="10">&ge; 10</option>
+                    <option value="100">&ge; 100</option>
+                    <option value="200">&ge; 200</option>
+                  </select>
+                </label>
+                <label class="size-control">
+                  <span>Minimum deleted size</span>
+                  <select data-size-filter>
+                    {deletion_size_filter_options()}
                   </select>
                 </label>
                 <button type="button" data-reset-controls>Reset to PDF view</button>
                 <div class="filter-status" data-filter-status></div>
               </div>
-              <div class="control-note">The support slider uses a logarithmic scale. In Auto mode, the observation value reports the lowest raw count among calls passing the support filter; choose a number to enforce an additional raw-evidence cutoff. Moving the support slider returns this setting to Auto. Controls affect the HTML view only.</div>
+              <div class="control-note">The support slider uses a logarithmic scale. The size filter keeps calls at or above the selected deleted-interval length. In Auto mode, the observation value reports the lowest raw count among calls passing both filters; choose a number to enforce an additional raw-evidence cutoff. Moving the support slider returns this setting to Auto. Controls affect the HTML view only.</div>
               <div id="{html.escape(target_id)}" class="plot-svg">{svg}</div>
             </div>
             """
@@ -917,7 +942,7 @@ def circular_location_plot_panel(path: str, title: str, caption: str, link_prefi
         <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(aggregate.name)}">Open multipage baseline PDF</a>
       </div>
       <p>{html.escape(caption)}</p>
-      <div class="control-guidance"><strong>Using location controls</strong><p>Use normalized support to compare evidence across samples or datasets with different usable-read depths. Auto reports the lowest raw observation count among calls retained by the support slider; choose a fixed observation count only when an additional absolute-evidence requirement is intended.</p></div>
+      <div class="control-guidance"><strong>Using location controls</strong><p>Use normalized support to compare evidence across samples or datasets with different usable-read depths. The deleted-size filter focuses the view on larger intervals without changing the underlying calls. Auto reports the lowest raw observation count among calls retained by both filters; choose a fixed observation count only when an additional absolute-evidence requirement is intended.</p></div>
       {''.join(subpanels)}
     </article>
     """
@@ -1024,10 +1049,16 @@ def rainfall_location_plot_panel(path: str, title: str, caption: str, link_prefi
                   <input type="range" min="0" max="1000" step="1" value="0" data-rainfall-support-slider>
                   <output data-rainfall-support-output>All loaded calls</output>
                 </label>
+                <label class="size-control">
+                  <span>Minimum deleted size</span>
+                  <select data-size-filter>
+                    {deletion_size_filter_options()}
+                  </select>
+                </label>
                 <button type="button" data-reset-rainfall-controls>Reset to all calls</button>
                 <div class="filter-status" data-rainfall-filter-status></div>
               </div>
-              <div class="control-note">The eligible call set loaded for this view contains {html.escape(call_count)} calls. By default this is the complete eligible set; an explicit configured cap, if used, is reflected in the count. The slider uses a logarithmic normalized-support scale; hover a point for its exact deletion ID, directed breakpoints, deleted size, raw and normalized support, arc annotation, origin status, and configured match. Controls affect the HTML view only.</div>
+              <div class="control-note">The eligible call set loaded for this view contains {html.escape(call_count)} calls. By default this is the complete eligible set; an explicit configured cap, if used, is reflected in the count. The support slider uses a logarithmic normalized-support scale, and the size filter keeps calls at or above the selected deleted-interval length. Hover a point for its exact deletion ID, directed breakpoints, deleted size, raw and normalized support, arc annotation, origin status, and configured match. Controls affect the HTML view only.</div>
               <div id="{html.escape(target_id)}" class="plot-svg">{svg}</div>
             </div>
             """
@@ -1039,7 +1070,7 @@ def rainfall_location_plot_panel(path: str, title: str, caption: str, link_prefi
         <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(aggregate.name)}">Open multipage PDF</a>
       </div>
       <p>{html.escape(caption)}</p>
-      <div class="control-guidance"><strong>Using the rainfall control</strong><p>All exact deletions passing the configured base support threshold are loaded into each group view. Move the slider to hide lower-support calls; the count and plot update together. The PDF is a static all-call snapshot.</p></div>
+      <div class="control-guidance"><strong>Using the rainfall controls</strong><p>All exact deletions passing the configured base support threshold are loaded into each group view. Move the support slider to hide lower-support calls, or select a minimum deleted size to focus on larger events; the count and plot update together. The PDF is a static all-size, all-call snapshot.</p></div>
       {''.join(subpanels)}
     </article>
     """
@@ -1077,6 +1108,43 @@ def endpoint_density_plot_panel(path: str, title: str, caption: str, link_prefix
       </div>
       <p>{html.escape(caption)}</p>
       <div class="control-guidance"><strong>Inspecting breakpoint density</strong><p>The bars and smooth curve summarize the same fixed coordinate bins used in the PDF. Hovering reports the raw left/right endpoint contributions and the smoothed value without changing the plotted calculation.</p></div>
+    {''.join(subpanels)}
+    </article>
+    """
+
+
+def breakpoint_pair_plot_panel(path: str, title: str, caption: str, link_prefix: str) -> str:
+    aggregate = Path(path)
+    interactive_svgs = sorted(aggregate.parent.glob(f"{aggregate.stem}__*__interactive.svg"))
+    if not interactive_svgs:
+        return ""
+    subpanels = []
+    for svg_path in interactive_svgs:
+        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        fallback_group = svg_path.stem.removeprefix(f"{aggregate.stem}__").removesuffix("__interactive")
+        group = svg_data_attribute(svg, "group", fallback_group.replace("_", " "))
+        static_pdf = svg_path.with_name(svg_path.name.replace("__interactive.svg", ".pdf"))
+        point_count = svg_data_attribute(svg, "point-count", "0")
+        subpanels.append(
+            f"""
+            <div class="plot-subpanel breakpoint-pair-plot-panel">
+              <div class="plot-title-row">
+                <h4>{html.escape(group)}</h4>
+                <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(static_pdf.name)}">Open PDF</a>
+              </div>
+              <div class="control-note">Hover a point to inspect its breakpoint pair, support, origin status, affected features, and the number of exact deletions represented by that pair ({html.escape(point_count)} pairs).</div>
+              <div class="plot-svg">{svg}</div>
+            </div>
+            """
+        )
+    return f"""
+    <article class="plot-panel breakpoint-pair-support-map">
+      <div class="plot-title-row">
+        <h3>{html.escape(title)}</h3>
+        <a class="plot-link" href="{html.escape(link_prefix)}/{html.escape(aggregate.name)}">Open multipage PDF</a>
+      </div>
+      <p>{html.escape(caption)}</p>
+      <div class="control-guidance"><strong>Inspecting breakpoint pairs</strong><p>Each point represents one unique directed left/right breakpoint pair after the configured display rule. Hovering reports the underlying deletion identifiers and annotations without changing the static calculation.</p></div>
       {''.join(subpanels)}
     </article>
     """
@@ -1106,6 +1174,10 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
         panel = endpoint_density_plot_panel(path, title, caption, link_prefix)
         if panel:
             return panel
+    if Path(path).stem == "breakpoint_pair_support_map":
+        panel = breakpoint_pair_plot_panel(path, title, caption, link_prefix)
+        if panel:
+            return panel
     svg_path = Path(path).with_suffix(".svg")
     pdf_name = html.escape(Path(path).name)
     panel_class = "plot-panel " + Path(path).stem.replace("-", "_")
@@ -1114,7 +1186,6 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
         "deletion_rainfall_left_breakpoint",
         "deletion_rainfall_right_breakpoint",
         "deletion_rainfall_midpoint",
-        "breakpoint_pair_support_map",
         "pooled_breakpoint_support_density",
         "pooled_breakpoint_support_density_capped",
     } and sidecar_svgs:
@@ -1146,7 +1217,10 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
         """
     if svg_path.exists():
         svg = svg_path.read_text(encoding="utf-8", errors="ignore")
-        preview = f'<div class="plot-svg">{svg}</div>'
+        hover_note = ""
+        if 'data-plot-type="ordination"' in svg:
+            hover_note = '<div class="control-note">Hover a sample to inspect its coordinates, group, replicate, layout, and tissue metadata.</div>'
+        preview = f'{hover_note}<div class="plot-svg">{svg}</div>'
     else:
         preview = '<div class="plot-missing">Plot preview not available.</div>'
     return f"""
