@@ -223,7 +223,7 @@ document.querySelectorAll('[data-rainfall-controls]').forEach((controls) => {
     document.querySelectorAll('[data-breakpoint-pair-controls]').forEach((controls) => {
       const target = document.getElementById(controls.dataset.target);
       const points = Array.from(target.querySelectorAll('.breakpoint-pair-point'));
-      const rankLabels = Array.from(target.querySelectorAll('[id^="breakpoint-pair-rank-"]'));
+      const rankLabels = Array.from(target.querySelectorAll('[id*="breakpoint-pair-rank-"]'));
       const slider = controls.querySelector('[data-support-slider]');
       const supportOutput = controls.querySelector('[data-support-output]');
       const observationFilter = controls.querySelector('[data-observation-filter]');

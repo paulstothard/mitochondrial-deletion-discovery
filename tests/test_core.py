@@ -72,6 +72,7 @@ from make_deletion_report import (
     exact_deletion_table_settings,
     exact_deletion_support_read_links,
     method_section,
+    namespace_inline_svg,
     potential_alternative_explanations,
     sequence_remap_overlap_table,
     table_html,
@@ -964,6 +965,29 @@ class CoreTests(unittest.TestCase):
         for column in ["replication_arc_context", "minor_arc_deleted_bp", "major_arc_deleted_bp"]:
             self.assertEqual(calls.columns.tolist().count(column), 1)
         self.assertEqual(calls.loc[0, "replication_arc_context"], "not_configured")
+
+    def test_inline_svg_ids_and_references_are_namespaced(self):
+        svg = (
+            '<svg aria-labelledby="title description">'
+            '<style>#glyph{fill:#ffffff} g[id^="static-points-"]{display:none;}</style>'
+            '<defs><path id="glyph"/><clipPath id="clip"><path/></clipPath></defs>'
+            '<title id="title">Title</title><desc id="description">Description</desc>'
+            '<g id="static-points-1" clip-path="url(#clip)">'
+            '<use href="#glyph"/><use xlink:href="#glyph"/>'
+            '</g><g id="glyph" class="duplicate-source-id"/></svg>'
+        )
+        namespaced = namespace_inline_svg(svg, "comparison/control")
+        prefix = "report_svg__comparison_control__"
+
+        for node_id in ["glyph", "clip", "title", "description", "static-points-1"]:
+            self.assertIn(f'id="{prefix}{node_id}"', namespaced)
+            self.assertNotIn(f'id="{node_id}"', namespaced)
+        self.assertIn(f'url(#{prefix}clip)', namespaced)
+        self.assertEqual(namespaced.count(f'href="#{prefix}glyph"'), 2)
+        self.assertIn(f'id="{prefix}glyph__duplicate_2"', namespaced)
+        self.assertIn(f'#{prefix}glyph{{fill:#ffffff}}', namespaced)
+        self.assertIn(f'[id^="{prefix}static-points-"]', namespaced)
+        self.assertIn(f'aria-labelledby="{prefix}title {prefix}description"', namespaced)
 
     def test_report_circular_chord_panels_include_interactive_controls(self):
         import tempfile

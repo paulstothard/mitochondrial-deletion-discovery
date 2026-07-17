@@ -862,6 +862,62 @@ def svg_data_attribute(svg: str, name: str, fallback: str = "") -> str:
     return html.unescape(match.group(2)) if match else fallback
 
 
+SVG_ID_ATTRIBUTE_RE = re.compile(
+    r"(?P<prefix>\bid\s*=\s*)(?P<quote>['\"])(?P<value>[^'\"]+)(?P=quote)"
+)
+SVG_FRAGMENT_REFERENCE_RE = re.compile(r"#(?P<value>[A-Za-z_][A-Za-z0-9_.:-]*)")
+SVG_ID_PREFIX_SELECTOR_RE = re.compile(
+    r"(?P<prefix>\[\s*id\s*\^=\s*)(?P<quote>['\"])(?P<value>[^'\"]+)(?P=quote)"
+)
+SVG_IDREF_ATTRIBUTE_RE = re.compile(
+    r"(?P<prefix>\b(?:aria-labelledby|aria-describedby)\s*=\s*)"
+    r"(?P<quote>['\"])(?P<value>[^'\"]*)(?P=quote)"
+)
+
+
+def namespace_inline_svg(svg: str, namespace: str) -> str:
+    """Make one inline SVG's DOM IDs unique without changing its behavior."""
+    namespace_token = re.sub(r"[^A-Za-z0-9_.-]+", "_", namespace).strip("_") or "plot"
+    namespace_token = f"report_svg__{namespace_token}"
+    ids = {match.group("value") for match in SVG_ID_ATTRIBUTE_RE.finditer(svg)}
+    if not ids:
+        return svg
+    replacements = {value: f"{namespace_token}__{value}" for value in ids}
+    id_occurrences: dict[str, int] = {}
+
+    def replace_id_attribute(match: re.Match) -> str:
+        value = match.group("value")
+        id_occurrences[value] = id_occurrences.get(value, 0) + 1
+        replacement = replacements[value]
+        if id_occurrences[value] > 1:
+            replacement = f"{replacement}__duplicate_{id_occurrences[value]}"
+        return f'{match.group("prefix")}{match.group("quote")}{replacement}{match.group("quote")}'
+
+    def replace_fragment_reference(match: re.Match) -> str:
+        value = match.group("value")
+        return f"#{replacements.get(value, value)}"
+
+    def replace_id_prefix_selector(match: re.Match) -> str:
+        return (
+            f'{match.group("prefix")}{match.group("quote")}'
+            f'{namespace_token}__{match.group("value")}{match.group("quote")}'
+        )
+
+    def replace_idref_attribute(match: re.Match) -> str:
+        values = " ".join(replacements.get(value, value) for value in match.group("value").split())
+        return f'{match.group("prefix")}{match.group("quote")}{values}{match.group("quote")}'
+
+    svg = SVG_ID_ATTRIBUTE_RE.sub(replace_id_attribute, svg)
+    svg = SVG_FRAGMENT_REFERENCE_RE.sub(replace_fragment_reference, svg)
+    svg = SVG_ID_PREFIX_SELECTOR_RE.sub(replace_id_prefix_selector, svg)
+    return SVG_IDREF_ATTRIBUTE_RE.sub(replace_idref_attribute, svg)
+
+
+def read_inline_svg(svg_path: Path, namespace: str) -> str:
+    svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+    return namespace_inline_svg(svg, namespace)
+
+
 def chord_target_id(prefix: str, value: str) -> str:
     token = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
     return f"{prefix}__{token or 'all'}"
@@ -891,10 +947,11 @@ def circular_location_plot_panel(path: str, title: str, caption: str, link_prefi
         return ""
     subpanels = []
     for svg_path in interactive_svgs:
-        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        raw_svg = svg_path.read_text(encoding="utf-8", errors="ignore")
         fallback_group = svg_path.stem.removeprefix(f"{aggregate.stem}__").removesuffix("__interactive")
-        group = svg_data_attribute(svg, "group", fallback_group.replace("_", " "))
+        group = svg_data_attribute(raw_svg, "group", fallback_group.replace("_", " "))
         target_id = chord_target_id(f"interactive__{aggregate.stem}", group)
+        svg = namespace_inline_svg(raw_svg, target_id)
         static_pdf = svg_path.with_name(svg_path.name.replace("__interactive.svg", ".pdf"))
         subpanels.append(
             f"""
@@ -955,10 +1012,11 @@ def circular_comparison_plot_panel(path: str, title: str, caption: str, link_pre
         return ""
     subpanels = []
     for svg_path in sidecar_svgs:
-        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
-        left_group = svg_data_attribute(svg, "left-group", "left group")
-        right_group = svg_data_attribute(svg, "right-group", "right group")
+        raw_svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        left_group = svg_data_attribute(raw_svg, "left-group", "left group")
+        right_group = svg_data_attribute(raw_svg, "right-group", "right group")
         target_id = chord_target_id(f"interactive__{aggregate.stem}", svg_path.stem)
+        svg = namespace_inline_svg(raw_svg, target_id)
         subpanels.append(
             f"""
             <div class="plot-subpanel comparison-plot-panel">
@@ -1030,12 +1088,13 @@ def rainfall_location_plot_panel(path: str, title: str, caption: str, link_prefi
         return ""
     subpanels = []
     for svg_path in interactive_svgs:
-        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        raw_svg = svg_path.read_text(encoding="utf-8", errors="ignore")
         fallback_group = svg_path.stem.removeprefix(f"{aggregate.stem}__").removesuffix("__interactive")
-        group = svg_data_attribute(svg, "group", fallback_group.replace("_", " "))
+        group = svg_data_attribute(raw_svg, "group", fallback_group.replace("_", " "))
         target_id = chord_target_id(f"interactive__{aggregate.stem}", group)
+        svg = namespace_inline_svg(raw_svg, target_id)
         static_pdf = svg_path.with_name(svg_path.name.replace("__interactive.svg", ".pdf"))
-        call_count = svg_data_attribute(svg, "call-count", "0")
+        call_count = svg_data_attribute(raw_svg, "call-count", "0")
         subpanels.append(
             f"""
             <div class="plot-subpanel rainfall-plot-panel">
@@ -1095,11 +1154,13 @@ def endpoint_density_plot_panel(path: str, title: str, caption: str, link_prefix
         return ""
     subpanels = []
     for svg_path in interactive_svgs:
-        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        raw_svg = svg_path.read_text(encoding="utf-8", errors="ignore")
         fallback_group = svg_path.stem.removeprefix(f"{aggregate.stem}__").removesuffix("__interactive")
-        group = svg_data_attribute(svg, "group", fallback_group.replace("_", " "))
+        group = svg_data_attribute(raw_svg, "group", fallback_group.replace("_", " "))
         static_pdf = svg_path.with_name(svg_path.name.replace("__interactive.svg", ".pdf"))
-        bin_count = svg_data_attribute(svg, "bin-count", "0")
+        bin_count = svg_data_attribute(raw_svg, "bin-count", "0")
+        target_id = chord_target_id(f"inline__{aggregate.stem}", group)
+        svg = namespace_inline_svg(raw_svg, target_id)
         subpanels.append(
             f"""
             <div class="plot-subpanel endpoint-density-plot-panel">
@@ -1132,12 +1193,13 @@ def breakpoint_pair_plot_panel(path: str, title: str, caption: str, link_prefix:
         return ""
     subpanels = []
     for svg_path in interactive_svgs:
-        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        raw_svg = svg_path.read_text(encoding="utf-8", errors="ignore")
         fallback_group = svg_path.stem.removeprefix(f"{aggregate.stem}__").removesuffix("__interactive")
-        group = svg_data_attribute(svg, "group", fallback_group.replace("_", " "))
+        group = svg_data_attribute(raw_svg, "group", fallback_group.replace("_", " "))
         static_pdf = svg_path.with_name(svg_path.name.replace("__interactive.svg", ".pdf"))
-        point_count = svg_data_attribute(svg, "point-count", "0")
+        point_count = svg_data_attribute(raw_svg, "point-count", "0")
         target_id = chord_target_id(f"interactive__{aggregate.stem}", group)
+        svg = namespace_inline_svg(raw_svg, target_id)
         subpanels.append(
             f"""
             <div class="plot-subpanel breakpoint-pair-plot-panel">
@@ -1234,7 +1296,7 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
             group_label = sidecar_svg.stem.split("__", 1)[-1].replace("_", " ")
             sidecar_pdf = sidecar_svg.with_suffix(".pdf")
             sidecar_pdf_name = html.escape(sidecar_pdf.name)
-            svg = sidecar_svg.read_text(encoding="utf-8", errors="ignore")
+            svg = read_inline_svg(sidecar_svg, sidecar_svg.stem)
             previews.append(
                 f"""
                 <div class="plot-subpanel">
@@ -1256,7 +1318,7 @@ def plot_panel(path: str, title: str, caption: str, link_prefix: str = "plots") 
         </article>
         """
     if svg_path.exists():
-        svg = svg_path.read_text(encoding="utf-8", errors="ignore")
+        svg = read_inline_svg(svg_path, svg_path.stem)
         hover_note = ""
         if 'data-plot-type="ordination"' in svg:
             hover_note = '<div class="control-note">Hover a sample to inspect its coordinates, group, replicate, layout, and tissue metadata.</div>'
