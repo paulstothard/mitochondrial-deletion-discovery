@@ -200,6 +200,51 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(config["mt_realign"]["minimap2_preset"], "map-ont")
         self.assertEqual(config["mt_realign"]["minimap2_index_extra"], "-k15 -w10")
 
+    def test_rat_configures_reference_d_loop(self):
+        config_path = Path(__file__).resolve().parents[1] / "config" / "datasets" / "rat_aging_muscle.yaml"
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+        control_regions = [
+            region
+            for region in config["analysis"]["mt_regions"]
+            if region["name"] == "mitochondrial_control_region"
+        ]
+        self.assertEqual(
+            control_regions,
+            [
+                {
+                    "name": "mitochondrial_control_region",
+                    "start": 15416,
+                    "end": 16313,
+                    "reason": "D-loop/control region annotated on the NC_001665.2 rat mitochondrial reference.",
+                }
+            ],
+        )
+
+        plotted = location_features(pd.DataFrame(), config)
+        d_loop = plotted[plotted["name"] == "D-loop/control"]
+        self.assertEqual(d_loop[["start", "end", "class"]].values.tolist(), [[15416, 16313, "region"]])
+
+        annotated = append_configured_regions(
+            pd.DataFrame(
+                columns=[
+                    "contig",
+                    "start",
+                    "end",
+                    "strand",
+                    "feature_type",
+                    "gene_id",
+                    "gene_name",
+                    "transcript_id",
+                    "product",
+                ]
+            ),
+            config,
+            mt_length=16313,
+        )
+        d_loop = annotated[annotated["gene_name"] == "mitochondrial_control_region"]
+        self.assertEqual(d_loop[["start", "end", "feature_type"]].values.tolist(), [[15416, 16313, "region"]])
+
     def test_minimap2_index_paths_include_seed_profile(self):
         root = Path(__file__).resolve().parents[1]
         snakefile = (root / "Snakefile").read_text(encoding="utf-8")

@@ -117,6 +117,10 @@ annotations:
     reason: same_transcript
 analysis:
   mt_regions:
+  - name: mitochondrial_control_region
+    start: 15416
+    end: 16313
+    reason: D-loop/control region annotated on the NC_001665.2 rat mitochondrial reference.
   - name: direct_repeat_8102_window
     start: 8077
     end: 8127
